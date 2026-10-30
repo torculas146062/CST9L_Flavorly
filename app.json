@@ -11,7 +11,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#F6E3EC",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -29,7 +29,8 @@
         {
           "locationWhenInUsePermission": "Flavorly uses your location to find dining places near you."
         }
-      ]
+      ],
+      "expo-build-properties"
     ]
   }
 }
