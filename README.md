@@ -26,7 +26,8 @@ npm start              # then scan the QR code with Expo Go
 
 `.env` holds `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`. Expo inlines `EXPO_PUBLIC_*` variables
 into the bundle at build time, and `.env` is git-ignored — never commit the key.
-Without a key the app still runs: it falls back to OpenStreetMap (no ratings or photos).
+Without a key the app still runs, but searches return nothing: only Google places that
+already have Maps reviews are shown, and OpenStreetMap carries none.
 
 Other scripts:
 
@@ -49,6 +50,9 @@ src/
     types.ts                   # Typed route param lists
   screens/
     MyRatingsScreen.tsx         # Everything the user has rated
+    LoginScreen.tsx             # Email + password sign-in (first screen when signed out)
+    SignUpScreen.tsx            # Create a local account
+    EditProfileScreen.tsx       # Change name and email
     MapScreen.tsx              # Map with user location + dining markers (native)
     MapScreen.web.tsx          # Web fallback — react-native-maps has no web build
     ExploreScreen.tsx          # Nearby dining list, sorted by distance
@@ -59,13 +63,18 @@ src/
     Screen.tsx                 # Safe-area + title wrapper used by tab screens
     Placeholder.tsx            # Dashed placeholder box for unfinished screens
     PlacePhoto.tsx             # Remote photo with a branded fallback tile
-    PlacePreviewMap.tsx        # Static mini map on the details screen (+ .web.tsx)
+    PlacePreviewMap.tsx        # Static mini map on the details screen; tapping it opens the place in Google Maps (+ .web.tsx)
+    AuthShell.tsx              # Shared frame for the sign-in / sign-up forms
+    FormField.tsx              # Labelled text input with an error line
+    PrimaryButton.tsx          # Primary / secondary / danger button with a busy state
   context/
     NearbyPlacesContext.tsx    # Shared viewport + merged places for both tabs
+    AuthContext.tsx            # Local session: sign in, sign up, sign out, edit profile
   storage/
     placeStore.ts              # In-memory collection, merged then persisted
     mapViewStore.ts            # Last map position, saved and restored
     ratingStore.ts             # User ratings per place
+    authStore.ts               # Local accounts + session (salted password hashes)
     photoFiles.ts              # Images as files named <origin>__<place>.<ext> (+ .web stub)
     backup.ts                  # Export / import / clear every storage key
   hooks/
@@ -90,6 +99,7 @@ src/
     fingerprint.ts             # FNV-1a content fingerprint
     imageSize.ts               # Header-only JPEG/PNG/GIF/WebP dimensions
     format.ts                  # Distance, rating count, price level formatting
+    maps.ts                    # Opens a place in Google Maps (place id, else coordinates)
     geo.ts                     # Haversine distance, viewport -> search circle
   theme/
     index.ts                   # Colors, spacing, radius, typography tokens
@@ -100,6 +110,16 @@ src/
 1. Create the screen in `src/screens/`.
 2. Add its route to `RootStackParamList` (or `MainTabParamList`) in `src/navigation/types.ts`.
 3. Register it in `src/navigation/RootNavigator.tsx` (or `MainTabs.tsx`).
+
+## Accounts
+
+- **The app requires an account.** Until one is signed in, `RootNavigator` renders only `Login` / `SignUp`; the tab navigation and the places/ratings providers mount after sign-in, so the login screen never fires searches.
+- **There is no backend yet.** Accounts live in `flavorly:auth:v1` (`src/storage/authStore.ts`) and are read through `src/context/AuthContext.tsx` (`useAuth()`): `signIn`, `signUp`, `signOut`, `updateProfile`. The signed-in user id is stored alongside them, which is what survives an app restart.
+- Passwords are kept as a salted FNV-1a hash (`<salt>$<digest>`), never in plain text. That only avoids writing the raw password — it is **not** real authentication, and anyone with device access can read or replace the store.
+- **Logging out clears the session and nothing else.** Places, photos and ratings live in their own stores and stay on the device; `DataProviders` in `App.tsx` just unmounts, so the next sign-in reads them back from disk.
+- Profile shows the account's name, email and initials, with **My Ratings**, **Edit profile** (name + email + password) and **Log out**. `email` is the account key, so it must stay unique.
+- **Changing the password** (`changePassword(current, next)`) re-checks the current password before writing a fresh salt + hash; it rejects a wrong current password, anything shorter than `MIN_PASSWORD_LENGTH` (6), and reusing the same password. The fields clear and a confirmation line appears on success.
+- Signed-in state is persisted, so a normal app restart goes straight to the tabs.
 
 ## Ratings & recommendations
 
@@ -132,6 +152,7 @@ Both are device features: browsers have no writable app directory, so the ZIP bu
 
 - `fetchNearbyPlaces` (`src/api/places.ts`) asks Google first and falls back to Overpass when the key is missing, the quota is exhausted, or the request fails.
 - Only dining/drinking results are kept: the request sends dining `includedTypes`, then `primaryType` is checked again so hotels, malls and landmarks that merely contain a restaurant are dropped. Adjust the list in `src/api/googlePlaces.ts`.
+- **Only places with Google Maps reviews are shown.** `hasGoogleReviews` (`src/types/place.ts`) requires `source === 'google'` and `ratingCount > 0`; it filters every fetch and, in `NearbyPlacesProvider`, the on-device collection, so unrated venues and every OpenStreetMap result are hidden (they stay stored, just not displayed). `openNow` is neither requested nor stored — only the rating and review count are mapped.
 - **Every search is saved on the device.** The collection lives in memory (`src/storage/placeStore.ts`) and is written to AsyncStorage (`flavorly:places:v1`) after the burst of merges settles (500 ms debounce, queued writes, flushed immediately when the app leaves the foreground). Merging mutates the in-memory map synchronously, so concurrent searches cannot lose each other's rows — the previous read-modify-write-per-search could.
 - Each place is upserted by id, so repeat searches refresh ratings/details instead of duplicating, and places found earlier are kept. The Map and Explore tabs both read from that merged collection, so panning over ground you have already covered reveals more than the 20 places a single request returns. The store has **no cap**: every place the user has seen is kept (≈293 B each). To stay clear of Android's ~2 MB per-value limit ("Row too big to fit into CursorWindow"), it is **sharded** across `flavorly:places:v2:index` + `places:v2:<n>` chunks of 250 places (~80 KB each), so the collection can grow indefinitely. Only chunks whose content changed are rewritten, a `places:v1` value left by earlier versions is migrated on first read, and the developer export still presents it as one JSON field.
 - **Light mode only.** The app is designed light; `app.json` pins `userInterfaceStyle: "light"` and both maps pass `userInterfaceStyle="light"` (`react-native-maps` is otherwise iOS-only for that prop, so Android inherits the light app theme).
