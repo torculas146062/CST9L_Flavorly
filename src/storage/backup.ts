@@ -10,6 +10,7 @@ import type { StoredPlace } from '../types/place';
 
 /** Keys stored as a single value. Places are sharded — see `placeStore`. */
 export const STORAGE_KEYS = {
+  auth: 'flavorly:auth:v1',
   mapView: 'flavorly:map-view:v1',
   ratings: 'flavorly:ratings:v1',
 } as const;
