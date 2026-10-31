@@ -57,10 +57,18 @@ export type Place = Coordinates & {
   address?: string;
   phone?: string;
   website?: string;
-  openNow?: boolean;
   photoUrl?: string;
   source: PlaceSource;
 };
+
+/**
+ * Only venues Google publishes reviews for are shown — a Google place with no reviews,
+ * and every OpenStreetMap result, is dropped. Reviews (rating plus count) drive the
+ * lists and the Recommend tab, so a venue without them is not worth displaying.
+ */
+export function hasGoogleReviews(place: Pick<Place, 'source' | 'ratingCount'>): boolean {
+  return place.source === 'google' && (place.ratingCount ?? 0) > 0;
+}
 
 /** OSM cuisine tags are lowercase and sometimes semicolon separated. */
 export function formatCuisine(cuisine?: string): string | undefined {

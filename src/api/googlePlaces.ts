@@ -55,7 +55,6 @@ const FIELD_MASK = [
   'places.userRatingCount',
   'places.priceLevel',
   'places.photos',
-  'places.regularOpeningHours.openNow',
   'places.websiteUri',
   'places.nationalPhoneNumber',
 ].join(',');
@@ -71,7 +70,6 @@ type GooglePlace = {
   userRatingCount?: number;
   priceLevel?: string;
   photos?: { name?: string }[];
-  regularOpeningHours?: { openNow?: boolean };
   websiteUri?: string;
   nationalPhoneNumber?: string;
 };
@@ -126,7 +124,6 @@ function toPlace(place: GooglePlace, origin: Coordinates): Place | null {
     address: place.formattedAddress,
     phone: place.nationalPhoneNumber,
     website: place.websiteUri,
-    openNow: place.regularOpeningHours?.openNow,
     photoUrl: photoUrl(place.photos?.[0]?.name),
     source: 'google',
   };

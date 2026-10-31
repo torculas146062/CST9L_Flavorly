@@ -42,7 +42,8 @@ export function ExploreScreen() {
             <ActivityIndicator style={styles.spinner} color={colors.primaryStrong} />
           ) : (
             <Text style={styles.empty}>
-              No places remembered yet. Open the map and pan around to load some, then pull down to refresh.
+              No places with Google reviews yet. Open the map and pan around to load some, then pull down to
+              refresh.
             </Text>
           )
         }

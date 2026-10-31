@@ -21,7 +21,7 @@ import {
 } from '../constants/map';
 import { flushStoredPlaces, loadStoredPlaces, mergeStoredPlaces, toSeed } from '../storage/placeStore';
 import { flushMapView, loadMapView, saveMapView } from '../storage/mapViewStore';
-import type { Coordinates, Place, SearchArea, StoredPlace } from '../types/place';
+import { hasGoogleReviews, type Coordinates, type Place, type SearchArea, type StoredPlace } from '../types/place';
 import { areaFromRegion, distanceInMeters, isSimilarArea, type MapRegion } from '../utils/geo';
 
 /** A stored place counts as "in view" even if it sits a hair outside the search circle. */
@@ -35,7 +35,7 @@ type NearbyPlacesValue = {
   places: Place[];
   /** Everything remembered on the device, regardless of the current view. */
   allPlaces: Place[];
-  /** Total places remembered on this device, across all searches. */
+  /** Places remembered on this device that have Google reviews. */
   storedCount: number;
   /** Where the search is centred — the current map view. */
   focus: SearchArea;
@@ -260,6 +260,8 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
     const origin = location ?? focus.center;
 
     return stored
+      // Places saved before the reviews-only rule existed are hidden, not deleted.
+      .filter(hasGoogleReviews)
       .map(({ seenAt: _seenAt, ...place }) => ({
         ...place,
         distanceMeters: distanceInMeters(origin, place),
@@ -290,7 +292,7 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
       status,
       places,
       allPlaces,
-      storedCount: stored.length,
+      storedCount: allPlaces.length,
       focus,
       restoredView,
       initialViewLoaded,
@@ -303,7 +305,7 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
       status,
       places,
       allPlaces,
-      stored.length,
+      allPlaces.length,
       focus,
       restoredView,
       initialViewLoaded,

@@ -15,7 +15,7 @@ type PlaceDetailsScreenProps = NativeStackScreenProps<RootStackParamList, 'Place
 
 export function PlaceDetailsScreen({ route }: PlaceDetailsScreenProps) {
   const { place } = route.params;
-  const { address, phone, website, rating, ratingCount, openNow } = place;
+  const { address, phone, website, rating, ratingCount } = place;
 
   const { ratings, rate, clear } = useRatings();
   const myRating = ratings[place.id]?.value;
@@ -47,11 +47,6 @@ export function PlaceDetailsScreen({ route }: PlaceDetailsScreenProps) {
           <Text style={styles.rating}>★ {rating.toFixed(1)}</Text>
           {ratingCount ? (
             <Text style={typography.caption}>{formatCount(ratingCount)} ratings</Text>
-          ) : null}
-          {openNow != null ? (
-            <View style={[styles.status, openNow ? styles.statusOpen : styles.statusClosed]}>
-              <Text style={styles.statusText}>{openNow ? 'Open now' : 'Closed'}</Text>
-            </View>
           ) : null}
         </View>
       ) : null}
@@ -157,22 +152,6 @@ const styles = StyleSheet.create({
   rating: {
     fontSize: 16,
     fontWeight: '700',
-    color: colors.primaryStrong,
-  },
-  status: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.pill,
-  },
-  statusOpen: {
-    backgroundColor: colors.primarySoft,
-  },
-  statusClosed: {
-    backgroundColor: colors.surface,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
     color: colors.primaryStrong,
   },
   fact: {
