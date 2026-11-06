@@ -70,9 +70,7 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
 
       <PrimaryButton label="Sign in" onPress={() => void handleSubmit()} disabled={!canSubmit} loading={busy} />
 
-      <Text style={typography.caption}>
-        Accounts are stored on this device only — there is no server yet.
-      </Text>
+      <Text style={styles.footnote}>Your account stays on this device.</Text>
     </AuthShell>
   );
 }
@@ -88,5 +86,10 @@ const styles = StyleSheet.create({
     color: colors.primaryStrong,
     fontWeight: '600',
     marginTop: spacing.xs,
+  },
+  footnote: {
+    ...typography.caption,
+    fontSize: 14,
+    color: colors.text,
   },
 });

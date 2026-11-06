@@ -84,7 +84,7 @@ export function StarRating({ value, onChange, size = 32, compact = false }: Star
             <Ionicons
               name={star <= displayed ? 'star' : 'star-outline'}
               size={size}
-              color={star <= displayed ? colors.primaryStrong : colors.border}
+              color={star <= displayed ? colors.primaryStrong : colors.inputBorder}
             />
           </View>
         ))}
@@ -106,7 +106,7 @@ export function StarRating({ value, onChange, size = 32, compact = false }: Star
             <Ionicons
               name={star <= displayed ? 'star' : 'star-outline'}
               size={size}
-              color={star <= displayed ? colors.primaryStrong : colors.border}
+              color={star <= displayed ? colors.primaryStrong : colors.inputBorder}
             />
           </Pressable>
         </View>

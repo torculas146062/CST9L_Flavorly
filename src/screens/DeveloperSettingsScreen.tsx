@@ -32,10 +32,24 @@ function formatBytes(bytes: number): string {
   if (bytes === 0) {
     return 'empty';
   }
-  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function DeveloperSettingsScreen() {
+  if (!__DEV__) {
+    return null;
+  }
+
+  return <DeveloperSettingsContent />;
+}
+
+function DeveloperSettingsContent() {
   const [summary, setSummary] = useState<StorageSummary[]>([]);
   const [photos, setPhotos] = useState<{ count: number; bytes: number }>({ count: 0, bytes: 0 });
   const [status, setStatus] = useState<string | null>(null);
@@ -142,8 +156,8 @@ export function DeveloperSettingsScreen() {
 
   const handleClear = () => {
     confirmDestructive(
-      'Clear all storage?',
-      'Places, ratings, cached photos and the map position will be deleted.',
+      'Clear all data?',
+      "This can't be undone. Places, ratings, cached photos and the map position will be deleted.",
       'Clear',
       () =>
         void run('Clearing', async () => {
@@ -156,8 +170,12 @@ export function DeveloperSettingsScreen() {
   };
 
   return (
-    <Screen title="Developer" subtitle="Storage export and import">
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <Screen subtitle="Storage export and import" safeAreaTop={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Storage</Text>
           {summary.map((entry) => (
@@ -174,13 +192,14 @@ export function DeveloperSettingsScreen() {
           </View>
         </View>
 
+        <Text style={styles.sectionTitle}>Export</Text>
         <Pressable
           accessibilityRole="button"
           disabled={busy}
           onPress={handleExport}
           style={({ pressed }) => [styles.button, (pressed || busy) && styles.buttonPressed]}
         >
-          <Ionicons name="download-outline" size={18} color={colors.onPrimary} />
+          <Ionicons name="download-outline" size={18} color="#FFFFFF" />
           <Text style={styles.buttonText}>Save data (JSON)</Text>
         </Pressable>
 
@@ -197,6 +216,7 @@ export function DeveloperSettingsScreen() {
           <Text style={styles.buttonSecondaryText}>Save photos (ZIP)</Text>
         </Pressable>
 
+        <Text style={styles.sectionTitle}>Import</Text>
         <Pressable
           accessibilityRole="button"
           disabled={busy || !photoArchiveSupported}
@@ -238,21 +258,34 @@ export function DeveloperSettingsScreen() {
             onPress={() => void applyImport(paste)}
             style={({ pressed }) => [
               styles.buttonSecondary,
-              (pressed || busy || paste.trim().length === 0) && styles.buttonPressed,
+              paste.trim().length === 0 && styles.buttonDisabled,
+              pressed && paste.trim().length > 0 && styles.buttonPressed,
             ]}
           >
-            <Ionicons name="code-download-outline" size={18} color={colors.primaryStrong} />
-            <Text style={styles.buttonSecondaryText}>Import pasted JSON</Text>
+            <Ionicons
+              name="code-download-outline"
+              size={18}
+              color={paste.trim().length > 0 ? colors.primaryStrong : colors.textMuted}
+            />
+            <Text
+              style={[
+                styles.buttonSecondaryText,
+                paste.trim().length === 0 && styles.buttonDisabledText,
+              ]}
+            >
+              Import pasted JSON
+            </Text>
           </Pressable>
         </View>
 
+        <Text style={styles.sectionTitle}>Danger zone</Text>
         <Pressable
           accessibilityRole="button"
           disabled={busy}
           onPress={handleClearPhotos}
           style={({ pressed }) => [styles.buttonOutlineDanger, (pressed || busy) && styles.buttonPressed]}
         >
-          <Ionicons name="image-outline" size={18} color={colors.primaryStrong} />
+          <Ionicons name="image-outline" size={18} color={DANGER_COLOR} />
           <Text style={styles.buttonOutlineDangerText}>
             {photos.count > 0 ? `Clear photos (${photos.count})` : 'Clear saved photos'}
           </Text>
@@ -264,7 +297,7 @@ export function DeveloperSettingsScreen() {
           onPress={handleClear}
           style={({ pressed }) => [styles.buttonDanger, (pressed || busy) && styles.buttonPressed]}
         >
-          <Ionicons name="trash-outline" size={18} color={colors.onPrimary} />
+          <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
           <Text style={styles.buttonText}>Clear storage</Text>
         </Pressable>
 
@@ -281,10 +314,19 @@ export function DeveloperSettingsScreen() {
   );
 }
 
+const DANGER_COLOR = '#B3261E';
+
 const styles = StyleSheet.create({
   content: {
     gap: spacing.sm,
     paddingBottom: spacing.xl,
+  },
+  sectionTitle: {
+    ...typography.caption,
+    marginTop: spacing.md,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   card: {
     gap: spacing.sm,
@@ -304,52 +346,69 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   button: {
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderRadius: radius.pill,
     backgroundColor: colors.primaryStrong,
   },
   buttonSecondary: {
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.primaryStrong,
   },
   buttonDanger: {
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderRadius: radius.pill,
-    backgroundColor: colors.primaryStrong,
+    backgroundColor: DANGER_COLOR,
+    marginTop: spacing.md,
   },
   buttonOutlineDanger: {
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.primaryStrong,
+    borderColor: DANGER_COLOR,
+    marginTop: spacing.sm,
   },
   buttonOutlineDangerText: {
-    color: colors.primaryStrong,
+    color: DANGER_COLOR,
     fontWeight: '600',
   },
   buttonPressed: {
     opacity: 0.7,
   },
+  buttonDisabled: {
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  buttonDisabledText: {
+    color: colors.textMuted,
+  },
   buttonText: {
-    color: colors.onPrimary,
+    color: '#FFFFFF',
     fontWeight: '600',
   },
   buttonSecondaryText: {
@@ -376,7 +435,9 @@ const styles = StyleSheet.create({
     color: '#A4392F',
   },
   note: {
-    fontSize: 11,
+    fontSize: 13,
     color: colors.textMuted,
+    lineHeight: 19,
+    marginTop: spacing.sm,
   },
 });

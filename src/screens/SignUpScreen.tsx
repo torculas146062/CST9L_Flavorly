@@ -45,6 +45,7 @@ export function SignUpScreen({ navigation }: SignUpScreenProps) {
     <AuthShell
       title="Create your account"
       subtitle="Your ratings and saved places stay on this device."
+      onBack={() => navigation.goBack()}
       footer={
         <Pressable accessibilityRole="link" onPress={() => navigation.goBack()} hitSlop={8}>
           <Text style={styles.link}>Already have an account? Sign in</Text>

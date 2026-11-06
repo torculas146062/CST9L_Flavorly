@@ -5,18 +5,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, spacing, typography } from '../theme';
 
 type ScreenProps = {
-  title: string;
+  title?: string;
   subtitle?: string;
   children?: ReactNode;
+  safeAreaTop?: boolean;
 };
 
-export function Screen({ title, subtitle, children }: ScreenProps) {
+export function Screen({ title, subtitle, children, safeAreaTop = true }: ScreenProps) {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
+    <View style={[styles.container, { paddingTop: (safeAreaTop ? insets.top : 0) + spacing.md }]}>
       <View style={styles.header}>
-        <Text style={typography.title}>{title}</Text>
+        {title ? <Text style={typography.title}>{title}</Text> : null}
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
       <View style={styles.body}>{children}</View>

@@ -13,7 +13,7 @@ type PrimaryButtonProps = {
 };
 
 const VARIANTS = {
-  primary: { container: { backgroundColor: colors.primaryStrong }, label: colors.onPrimary },
+  primary: { container: { backgroundColor: colors.primaryStrong }, label: '#FFFFFF' },
   secondary: { container: { backgroundColor: colors.surface }, label: colors.primaryStrong },
   danger: { container: { backgroundColor: colors.primarySoft }, label: colors.primaryStrong },
 } as const;
@@ -31,7 +31,8 @@ export function PrimaryButton({ label, onPress, disabled, loading, variant = 'pr
       style={({ pressed }) => [
         styles.button,
         { backgroundColor: palette.container.backgroundColor },
-        (pressed || inactive) && styles.pressed,
+        pressed && styles.pressed,
+        inactive && styles.inactive,
       ]}
     >
       {loading ? (
@@ -53,6 +54,9 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.75,
+  },
+  inactive: {
+    opacity: 0.45,
   },
   label: {
     fontSize: 16,
