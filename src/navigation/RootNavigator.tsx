@@ -50,7 +50,7 @@ export function RootNavigator() {
             <Stack.Screen
               name="PlaceDetails"
               component={PlaceDetailsScreen}
-              options={{ title: 'Place', headerBackTitle: 'Back' }}
+              options={({ route }) => ({ title: route.params.place.name, headerBackTitle: 'Back' })}
             />
             <Stack.Screen
               name="MyRatings"
@@ -62,11 +62,13 @@ export function RootNavigator() {
               component={EditProfileScreen}
               options={{ title: 'Edit profile', headerBackTitle: 'Back' }}
             />
-            <Stack.Screen
-              name="DeveloperSettings"
-              component={DeveloperSettingsScreen}
-              options={{ title: 'Developer', headerBackTitle: 'Back' }}
-            />
+            {__DEV__ ? (
+              <Stack.Screen
+                name="DeveloperSettings"
+                component={DeveloperSettingsScreen}
+                options={{ title: 'Developer', headerBackTitle: 'Back' }}
+              />
+            ) : null}
           </>
         ) : (
           <>
@@ -74,7 +76,7 @@ export function RootNavigator() {
             <Stack.Screen
               name="SignUp"
               component={SignUpScreen}
-              options={{ title: 'Sign up', headerBackTitle: 'Back' }}
+              options={{ headerShown: false }}
             />
           </>
         )}

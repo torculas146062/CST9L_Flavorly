@@ -5,7 +5,7 @@ import { colors, radius } from '../theme';
 import type { Place } from '../types/place';
 import { openInMaps } from '../utils/maps';
 
-const PREVIEW_DELTA = 0.004;
+const PREVIEW_DELTA = 0.012;
 
 type PlacePreviewMapProps = {
   place: Place;

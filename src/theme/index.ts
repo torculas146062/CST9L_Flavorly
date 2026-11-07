@@ -6,6 +6,7 @@ export const colors = {
   text: '#2E2228',
   textMuted: '#7A6B72',
   border: '#EFDDE5',
+  inputBorder: '#A78998',
   // Brand pink: use for fills and decoration only — it is too light for text.
   primary: '#DCA6BE',
   // Accessible rose for text, icons and active states on light backgrounds.

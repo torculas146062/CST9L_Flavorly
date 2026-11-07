@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { colors, radius, spacing, typography } from '../theme';
@@ -6,17 +8,37 @@ type FormFieldProps = Omit<TextInputProps, 'style'> & {
   label: string;
   /** Shown under the input; also marks the field as invalid. */
   error?: string;
+  rightAccessory?: ReactNode;
 };
 
-export function FormField({ label, error, ...inputProps }: FormFieldProps) {
+export function FormField({ label, error, rightAccessory, onFocus, onBlur, ...inputProps }: FormFieldProps) {
+  const [focused, setFocused] = useState(false);
+
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        placeholderTextColor={colors.textMuted}
-        {...inputProps}
-        style={[styles.input, error ? styles.inputInvalid : null]}
-      />
+      <View
+        style={[
+          styles.inputContainer,
+          focused ? styles.inputFocused : null,
+          error ? styles.inputInvalid : null,
+        ]}
+      >
+        <TextInput
+          placeholderTextColor={colors.textMuted}
+          {...inputProps}
+          onFocus={(event) => {
+            setFocused(true);
+            onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setFocused(false);
+            onBlur?.(event);
+          }}
+          style={styles.input}
+        />
+        {rightAccessory}
+      </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
@@ -32,14 +54,26 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  input: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.inputBorder,
     backgroundColor: colors.background,
+  },
+  input: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
     ...typography.body,
+  },
+  inputFocused: {
+    borderColor: colors.primaryStrong,
+    borderWidth: 2,
+    paddingHorizontal: spacing.md - 1,
+    paddingVertical: spacing.sm + 1,
   },
   inputInvalid: {
     borderColor: colors.primaryStrong,

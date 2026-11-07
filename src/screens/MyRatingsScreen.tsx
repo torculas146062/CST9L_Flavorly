@@ -4,6 +4,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { PrimaryButton } from '../components/PrimaryButton';
 import { PlaceThumbnail } from '../components/PlaceThumbnail';
 import { StarRating } from '../components/StarRating';
 import { useNearbyPlaces } from '../context/NearbyPlacesContext';
@@ -39,18 +40,22 @@ export function MyRatingsScreen() {
     return (
       <View style={styles.container}>
         <View style={styles.emptyState}>
-          <Ionicons name="star-outline" size={28} color={colors.primaryStrong} />
+          <View style={styles.emptyIcon}>
+            <Ionicons name="star" size={48} color={colors.primaryStrong} />
+          </View>
           <Text style={typography.heading}>No ratings yet</Text>
           <Text style={styles.emptyBody}>
-            Open a place from Explore or the map and tap the stars. Your ratings shape the Recommend tab.
+            Rate places you’ve visited to get better recommendations.
           </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => navigation.navigate('MainTabs', { screen: 'Explore' })}
-            style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-          >
-            <Text style={styles.buttonText}>Find places</Text>
-          </Pressable>
+          <PrimaryButton
+            label="Find places"
+            onPress={() =>
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'MainTabs', params: { screen: 'Explore' } }],
+              })
+            }
+          />
         </View>
       </View>
     );
@@ -60,7 +65,7 @@ export function MyRatingsScreen() {
     <View style={styles.container}>
       <View style={styles.summary}>
         <Text style={typography.heading}>
-          {rows.length} rated place{rows.length === 1 ? '' : 's'}
+          {ratedCount} rating{ratedCount === 1 ? '' : 's'}
         </Text>
         {average ? (
           <Text style={styles.average}>
@@ -172,11 +177,19 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   emptyState: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.sm,
-    marginTop: spacing.xl,
-    padding: spacing.lg,
-    borderRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
+  },
+  emptyIcon: {
+    width: 88,
+    height: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+    borderRadius: radius.pill,
     backgroundColor: colors.primarySoft,
   },
   emptyBody: {
@@ -184,20 +197,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.textMuted,
     textAlign: 'center',
-  },
-  button: {
-    marginTop: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primaryStrong,
-  },
-  buttonPressed: {
-    opacity: 0.85,
-  },
-  buttonText: {
-    color: colors.onPrimary,
-    fontWeight: '600',
+    marginBottom: spacing.sm,
   },
   footer: {
     ...typography.caption,

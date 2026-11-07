@@ -27,7 +27,12 @@ export function PlacePhoto({ place, uri, size, style, hero = false, onError }: P
   if (uri) {
     return (
       <View style={containerStyle}>
-        <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onError} />
+        <Image
+          source={{ uri }}
+          style={StyleSheet.absoluteFill}
+          resizeMode={hero ? 'contain' : 'cover'}
+          onError={onError}
+        />
       </View>
     );
   }
@@ -55,7 +60,7 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: radius.lg,
     overflow: 'hidden',
-    backgroundColor: colors.surface,
+    backgroundColor: '#F5F1F3',
   },
   fallback: {
     alignItems: 'center',
