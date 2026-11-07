@@ -20,6 +20,7 @@ type AuthValue = {
   signOut: () => Promise<void>;
   updateProfile: (changes: { name?: string; email?: string }) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  withAuthenticatedRequest: <T>(action: (token: string) => Promise<T>) => Promise<T>;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -199,8 +200,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthValue>(
-    () => ({ ready, user, signIn, signUp, signOut, updateProfile, changePassword }),
-    [ready, user, signIn, signUp, signOut, updateProfile, changePassword],
+    () => ({ ready, user, signIn, signUp, signOut, updateProfile, changePassword, withAuthenticatedRequest }),
+    [ready, user, signIn, signUp, signOut, updateProfile, changePassword, withAuthenticatedRequest],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

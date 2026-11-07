@@ -12,6 +12,7 @@ import {
 import { AppState } from 'react-native';
 
 import { fetchNearbyPlaces } from '../api/places';
+import { getCachedCatalogVerification } from '../api/catalog';
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_SEARCH_RADIUS_METERS,
@@ -98,7 +99,8 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
 
     void loadStoredPlaces().then((places) => {
       if (!cancelled && isMounted.current) {
-        setStored(places);
+        // Eligibility is session-cached and must be revalidated after app restart.
+        setStored(places.map((place) => ({ ...place, catalogSupported: undefined })));
         setStatus('ready');
       }
     });
@@ -204,7 +206,13 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setStored(merged);
+      setStored(
+        merged.map((place) => ({
+          ...place,
+          catalogSupported:
+            getCachedCatalogVerification(place.id)?.status === 'supported' ? true : undefined,
+        })),
+      );
       setStatus('ready');
 
     } catch {

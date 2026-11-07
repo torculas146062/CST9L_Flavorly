@@ -195,7 +195,9 @@ export function MapScreen() {
       <Text style={styles.attribution}>
         {places.some((place) => place.source === 'google')
           ? 'Place data and ratings from Google'
-          : 'Places data © OpenStreetMap contributors'}
+          : places.some((place) => place.source === 'backend')
+            ? 'Restaurant catalog data from Flavorly'
+            : 'Places data © OpenStreetMap contributors'}
       </Text>
     </View>
   );

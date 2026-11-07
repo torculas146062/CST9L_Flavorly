@@ -53,7 +53,7 @@ function isStoredPlace(value: unknown): value is StoredPlace {
     typeof place.name === 'string' &&
     typeof place.latitude === 'number' &&
     typeof place.longitude === 'number' &&
-    (place.source === 'google' || place.source === 'osm')
+    (place.source === 'google' || place.source === 'osm' || place.source === 'backend')
   );
 }
 

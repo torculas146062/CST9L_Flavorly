@@ -23,9 +23,27 @@ type ProfileResponse = {
 };
 
 type RequestOptions = {
-  method?: 'GET' | 'POST' | 'PATCH';
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   token?: string;
+};
+
+export type BackendPlace = {
+  id: string;
+  name: string;
+  kindLabel: string;
+  rating?: number | null;
+  ratingCount?: number | null;
+  latitude: number;
+  longitude: number;
+  address?: string | null;
+  distance_km?: number | null;
+};
+
+export type BackendRating = {
+  restaurant_id: string;
+  rating: number;
+  rated_at: string;
 };
 
 export class BackendError extends Error {
@@ -173,6 +191,51 @@ export function updatePassword(
   return request('/users/me/password', {
     method: 'PATCH',
     body: { current_password: currentPassword, new_password: newPassword },
+    token,
+  });
+}
+
+export function getNearbyBackendPlaces(
+  latitude: number,
+  longitude: number,
+  radiusKm: number,
+  limit = 50,
+): Promise<{ count: number; places: BackendPlace[] }> {
+  const query = [
+    `lat=${encodeURIComponent(String(latitude))}`,
+    `lon=${encodeURIComponent(String(longitude))}`,
+    `radius_km=${encodeURIComponent(String(radiusKm))}`,
+    `limit=${encodeURIComponent(String(limit))}`,
+  ].join('&');
+  return request(`/places/nearby?${query}`);
+}
+
+export function getBackendPlaceDetails(placeId: string): Promise<BackendPlace> {
+  return request(`/places/details?place_id=${encodeURIComponent(placeId)}`);
+}
+
+export function getMyRatings(token: string): Promise<{ user_id: string; ratings: BackendRating[] }> {
+  return request('/users/me/ratings', { token });
+}
+
+export function saveRestaurantRating(
+  token: string,
+  restaurantId: string,
+  rating: number,
+): Promise<{ message: string; restaurant_id: string; rating: number }> {
+  return request('/ratings', {
+    method: 'POST',
+    body: { restaurant_id: restaurantId, rating },
+    token,
+  });
+}
+
+export function deleteRestaurantRating(
+  token: string,
+  restaurantId: string,
+): Promise<{ message: string; restaurant_id: string }> {
+  return request(`/ratings?restaurant_id=${encodeURIComponent(restaurantId)}`, {
+    method: 'DELETE',
     token,
   });
 }
