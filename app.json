@@ -30,7 +30,8 @@
           "locationWhenInUsePermission": "Flavorly uses your location to find dining places near you."
         }
       ],
-      "expo-build-properties"
+      "expo-build-properties",
+      "expo-secure-store"
     ]
   }
 }

@@ -31,8 +31,7 @@ const navigationTheme = {
 export function RootNavigator() {
   const { ready, user } = useAuth();
 
-  // Reading the stored session is local and instant, but showing a spinner beats
-  // flashing the wrong stack for a frame.
+  // Validate the saved backend session before rendering either navigation stack.
   if (!ready) {
     return (
       <View style={styles.loading}>

@@ -5,7 +5,13 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text
 import { FormField } from '../components/FormField';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { useAuth } from '../context/AuthContext';
-import { isValidEmail, MIN_PASSWORD_LENGTH } from '../storage/authStore';
+import {
+  isValidEmail,
+  isValidUsername,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  USERNAME_REQUIREMENTS,
+} from '../types/auth';
 import { colors, radius, spacing, typography } from '../theme';
 
 function PasswordVisibilityToggle({
@@ -58,17 +64,20 @@ export function EditProfileScreen() {
   const [savingPassword, setSavingPassword] = useState(false);
 
   const unchanged =
-    name.trim() === (user?.name ?? '') && email.trim().toLowerCase() === (user?.email ?? '');
+    name === (user?.name ?? '') && email.trim().toLowerCase() === (user?.email ?? '');
+  const invalidUsername = name.length > 0 && !isValidUsername(name);
   const invalidEmail = email.trim().length > 0 && !isValidEmail(email);
   const canSaveDetails =
-    name.trim().length > 0 && isValidEmail(email) && !unchanged && !savingDetails;
+    isValidUsername(name) && isValidEmail(email) && !unchanged && !savingDetails;
 
   const mismatch = confirmPassword.length > 0 && confirmPassword !== newPassword;
   const passwordTooShort =
-    newPassword.length > 0 && newPassword.length < MIN_PASSWORD_LENGTH;
+    newPassword.length > 0 &&
+    (newPassword.length < MIN_PASSWORD_LENGTH || newPassword.length > MAX_PASSWORD_LENGTH);
   const canSavePassword =
     currentPassword.length > 0 &&
     newPassword.length >= MIN_PASSWORD_LENGTH &&
+    newPassword.length <= MAX_PASSWORD_LENGTH &&
     confirmPassword.length > 0 &&
     !mismatch &&
     !savingPassword;
@@ -76,8 +85,8 @@ export function EditProfileScreen() {
   const handleSaveDetails = async () => {
     setDetailsError(null);
     setDetailsSaved(false);
-    if (!name.trim()) {
-      setDetailsError('Enter your name.');
+    if (!isValidUsername(name)) {
+      setDetailsError(USERNAME_REQUIREMENTS);
       return;
     }
     if (!isValidEmail(email)) {
@@ -97,8 +106,8 @@ export function EditProfileScreen() {
   };
 
   const handleChangePassword = async () => {
-    if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      setPasswordError(`Use at least ${MIN_PASSWORD_LENGTH} characters for your new password.`);
+    if (newPassword.length < MIN_PASSWORD_LENGTH || newPassword.length > MAX_PASSWORD_LENGTH) {
+      setPasswordError(`Use a password with ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters.`);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -130,18 +139,21 @@ export function EditProfileScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.card}>
           <FormField
-            label="Name"
+            label="Username"
             value={name}
             onChangeText={(value) => {
               setName(value);
               setDetailsError(null);
               setDetailsSaved(false);
             }}
-            placeholder="Your name"
-            autoCapitalize="words"
-            autoComplete="name"
-            textContentType="name"
+            placeholder="3–30 letters, numbers, or underscores"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="username"
+            textContentType="username"
+            error={invalidUsername ? USERNAME_REQUIREMENTS : undefined}
           />
+          <Text style={styles.helper}>{USERNAME_REQUIREMENTS}</Text>
           <FormField
             label="Email"
             value={email}
@@ -198,7 +210,7 @@ export function EditProfileScreen() {
               setPasswordError(null);
               setPasswordSaved(false);
             }}
-            placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+            placeholder={`${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters`}
             secureTextEntry={!showNewPassword}
             autoCapitalize="none"
             autoComplete="new-password"
@@ -235,7 +247,7 @@ export function EditProfileScreen() {
           />
           {passwordTooShort ? (
             <Text style={styles.helper}>
-              Use at least {MIN_PASSWORD_LENGTH} characters for your new password.
+              Use {MIN_PASSWORD_LENGTH}–{MAX_PASSWORD_LENGTH} characters for your new password.
             </Text>
           ) : null}
           {passwordError ? <Text style={styles.error}>{passwordError}</Text> : null}

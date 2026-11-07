@@ -1,40 +1,106 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import {
-  changePassword as changePasswordInStore,
-  loadSession,
-  signIn as signInToStore,
-  signOut as signOutFromStore,
-  signUp as signUpToStore,
-  updateProfile as updateProfileInStore,
-  type LocalUser,
-} from '../storage/authStore';
+  BackendError,
+  getCurrentUser,
+  login as loginWithBackend,
+  register,
+  toAuthUser,
+  updateCurrentUser,
+  updatePassword,
+} from '../api/backend';
+import { normalizeEmail, type AuthUser } from '../types/auth';
+import { clearAccessToken, getAccessToken, saveAccessToken } from '../storage/tokenStore';
 
 type AuthValue = {
-  /** False until the stored session has been read. */
   ready: boolean;
-  user: LocalUser | null;
-  /** Rejects with a message meant for the form. */
+  user: AuthUser | null;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  /** Rejects with a message meant for the form. */
   updateProfile: (changes: { name?: string; email?: string }) => Promise<void>;
-  /** Rejects with a message meant for the form. */
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
 
-/**
- * Local-only accounts: there is no backend yet, so sessions live in AsyncStorage
- * (`src/storage/authStore.ts`). Signing out clears the session and nothing else — places,
- * photos and ratings stay on the device.
- */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<LocalUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [ready, setReady] = useState(false);
   const isMounted = useRef(true);
+  const sessionVersion = useRef(0);
+  const authAttempt = useRef(0);
+  const tokenQueue = useRef<Promise<void>>(Promise.resolve());
+
+  const queueTokenChange = useCallback((change: () => Promise<void>) => {
+    const result = tokenQueue.current.then(change);
+    tokenQueue.current = result.catch(() => undefined);
+    return result;
+  }, []);
+
+  const expireSession = useCallback(
+    async (version: number) => {
+      if (sessionVersion.current !== version) {
+        return;
+      }
+      sessionVersion.current += 1;
+      authAttempt.current += 1;
+      if (isMounted.current) {
+        setUser(null);
+      }
+      await queueTokenChange(async () => {
+        if (sessionVersion.current === version + 1) {
+          await clearAccessToken();
+        }
+      });
+    },
+    [queueTokenChange],
+  );
+
+  const withAuthenticatedRequest = useCallback(
+    async <T,>(action: (token: string) => Promise<T>): Promise<T> => {
+      const version = sessionVersion.current;
+      const token = await getAccessToken();
+      if (!token || !user || sessionVersion.current !== version) {
+        throw new Error('You are not signed in.');
+      }
+      try {
+        return await action(token);
+      } catch (caught) {
+        if (caught instanceof BackendError && caught.status === 401) {
+          await expireSession(version);
+        }
+        throw caught;
+      }
+    },
+    [expireSession, user],
+  );
+
+  const commitLogin = useCallback(
+    async (email: string, password: string, attempt: number) => {
+      const result = await loginWithBackend(email, password);
+      if (authAttempt.current !== attempt) {
+        throw new Error('This sign-in attempt was cancelled.');
+      }
+
+      const nextVersion = sessionVersion.current + 1;
+      await queueTokenChange(async () => {
+        if (authAttempt.current !== attempt) {
+          return;
+        }
+        await saveAccessToken(result.access_token);
+      });
+
+      if (authAttempt.current !== attempt) {
+        throw new Error('This sign-in attempt was cancelled.');
+      }
+      sessionVersion.current = nextVersion;
+      if (isMounted.current) {
+        setUser(toAuthUser(result.user));
+      }
+    },
+    [queueTokenChange],
+  );
 
   useEffect(() => {
     isMounted.current = true;
@@ -44,56 +110,92 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void loadSession().then((session) => {
-      if (isMounted.current) {
-        setUser(session);
-        setReady(true);
+    let active = true;
+    const version = sessionVersion.current;
+
+    void (async () => {
+      try {
+        const token = await getAccessToken();
+        if (token) {
+          try {
+            const currentUser = await getCurrentUser(token);
+            if (active && sessionVersion.current === version) {
+              setUser(toAuthUser(currentUser));
+            }
+          } catch (caught) {
+            if (caught instanceof BackendError && caught.status === 401) {
+              await expireSession(version);
+            } else {
+              throw caught;
+            }
+          }
+        }
+      } catch (caught) {
+        if (__DEV__) {
+          console.warn('Could not restore the backend session:', caught instanceof Error ? caught.message : caught);
+        }
+      } finally {
+        if (active) {
+          setReady(true);
+        }
       }
-    });
-  }, []);
+    })();
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    const signedIn = await signInToStore({ email, password });
-    if (isMounted.current) {
-      setUser(signedIn);
-    }
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [expireSession]);
 
-  const signUp = useCallback(async (name: string, email: string, password: string) => {
-    const created = await signUpToStore({ name, email, password });
-    if (isMounted.current) {
-      setUser(created);
-    }
-  }, []);
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      const attempt = ++authAttempt.current;
+      await commitLogin(normalizeEmail(email), password, attempt);
+    },
+    [commitLogin],
+  );
+
+  const signUp = useCallback(
+    async (name: string, email: string, password: string) => {
+      const attempt = ++authAttempt.current;
+      await register(name, normalizeEmail(email), password);
+      if (authAttempt.current !== attempt) {
+        throw new Error('This sign-up attempt was cancelled.');
+      }
+      await commitLogin(normalizeEmail(email), password, attempt);
+    },
+    [commitLogin],
+  );
 
   const signOut = useCallback(async () => {
-    await signOutFromStore();
+    authAttempt.current += 1;
+    sessionVersion.current += 1;
     if (isMounted.current) {
       setUser(null);
     }
-  }, []);
+    await queueTokenChange(clearAccessToken);
+  }, [queueTokenChange]);
 
   const updateProfile = useCallback(
     async (changes: { name?: string; email?: string }) => {
-      if (!user) {
-        throw new Error('You are not signed in.');
-      }
-      const updated = await updateProfileInStore(user.id, changes);
-      if (isMounted.current) {
-        setUser(updated);
+      const version = sessionVersion.current;
+      const response = await withAuthenticatedRequest((token) =>
+        updateCurrentUser(token, {
+          ...(changes.name === undefined ? {} : { username: changes.name }),
+          ...(changes.email === undefined ? {} : { email: normalizeEmail(changes.email) }),
+        }),
+      );
+      if (isMounted.current && sessionVersion.current === version) {
+        setUser(toAuthUser(response.user));
       }
     },
-    [user],
+    [withAuthenticatedRequest],
   );
 
   const changePassword = useCallback(
     async (currentPassword: string, newPassword: string) => {
-      if (!user) {
-        throw new Error('You are not signed in.');
-      }
-      await changePasswordInStore(user.id, currentPassword, newPassword);
+      await withAuthenticatedRequest((token) => updatePassword(token, currentPassword, newPassword));
     },
-    [user],
+    [withAuthenticatedRequest],
   );
 
   const value = useMemo<AuthValue>(

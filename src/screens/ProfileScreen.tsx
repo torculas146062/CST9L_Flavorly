@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { ComponentProps } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Screen } from '../components/Screen';
 import { useAuth } from '../context/AuthContext';
@@ -48,7 +48,9 @@ export function ProfileScreen() {
   const navigation = useNavigation<ProfileNavigation>();
 
   const handleSignOut = () => {
-    confirmDestructive('Log out?', 'Are you sure you want to log out?', 'Log out', () => void signOut());
+    confirmDestructive('Log out?', 'Are you sure you want to log out?', 'Log out', () => {
+      void signOut().catch(() => Alert.alert('Could not log out', 'Please try again.'));
+    });
   };
 
   return (

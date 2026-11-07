@@ -70,7 +70,7 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
 
       <PrimaryButton label="Sign in" onPress={() => void handleSubmit()} disabled={!canSubmit} loading={busy} />
 
-      <Text style={styles.footnote}>Your account stays on this device.</Text>
+      <Text style={styles.footnote}>Sign in to your Flavorly account.</Text>
     </AuthShell>
   );
 }

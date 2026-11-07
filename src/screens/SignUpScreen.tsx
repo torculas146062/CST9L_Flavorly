@@ -7,7 +7,7 @@ import { FormField } from '../components/FormField';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { useAuth } from '../context/AuthContext';
 import type { RootStackParamList } from '../navigation/types';
-import { MIN_PASSWORD_LENGTH } from '../storage/authStore';
+import { isValidEmail, isValidUsername, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, USERNAME_REQUIREMENTS } from '../types/auth';
 import { colors, spacing, typography } from '../theme';
 
 type SignUpScreenProps = NativeStackScreenProps<RootStackParamList, 'SignUp'>;
@@ -22,10 +22,29 @@ export function SignUpScreen({ navigation }: SignUpScreenProps) {
   const [busy, setBusy] = useState(false);
 
   const mismatch = confirm.length > 0 && confirm !== password;
+  const invalidUsername = name.length > 0 && !isValidUsername(name);
   const canSubmit =
-    name.trim().length > 0 && email.trim().length > 0 && password.length > 0 && !mismatch && !busy;
+    isValidUsername(name) &&
+    isValidEmail(email) &&
+    password.length >= MIN_PASSWORD_LENGTH &&
+    password.length <= MAX_PASSWORD_LENGTH &&
+    confirm.length > 0 &&
+    !mismatch &&
+    !busy;
 
   const handleSubmit = async () => {
+    if (!isValidUsername(name)) {
+      setError(USERNAME_REQUIREMENTS);
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    if (password.length < MIN_PASSWORD_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
+      setError(`Use a password with ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters.`);
+      return;
+    }
     if (password !== confirm) {
       setError('The passwords do not match.');
       return;
@@ -44,7 +63,7 @@ export function SignUpScreen({ navigation }: SignUpScreenProps) {
   return (
     <AuthShell
       title="Create your account"
-      subtitle="Your ratings and saved places stay on this device."
+      subtitle="Create an account to get started with Flavorly."
       onBack={() => navigation.goBack()}
       footer={
         <Pressable accessibilityRole="link" onPress={() => navigation.goBack()} hitSlop={8}>
@@ -53,15 +72,18 @@ export function SignUpScreen({ navigation }: SignUpScreenProps) {
       }
     >
       <FormField
-        label="Name"
+        label="Username"
         value={name}
         onChangeText={setName}
-        placeholder="Your name"
-        autoCapitalize="words"
-        autoComplete="name"
-        textContentType="name"
+        placeholder="3–30 letters, numbers, or underscores"
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="username"
+        textContentType="username"
         returnKeyType="next"
+        error={invalidUsername ? USERNAME_REQUIREMENTS : undefined}
       />
+      <Text style={styles.hint}>{USERNAME_REQUIREMENTS}</Text>
       <FormField
         label="Email"
         value={email}
@@ -78,7 +100,7 @@ export function SignUpScreen({ navigation }: SignUpScreenProps) {
         label="Password"
         value={password}
         onChangeText={setPassword}
-        placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+        placeholder={`${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters`}
         secureTextEntry
         autoCapitalize="none"
         autoComplete="new-password"
@@ -122,5 +144,10 @@ const styles = StyleSheet.create({
     color: colors.primaryStrong,
     fontWeight: '600',
     marginTop: spacing.xs,
+  },
+  hint: {
+    ...typography.caption,
+    marginTop: -spacing.xs,
+    color: colors.textMuted,
   },
 });
