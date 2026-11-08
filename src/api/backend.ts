@@ -26,7 +26,10 @@ type RequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   token?: string;
+  signal?: AbortSignal;
 };
+
+const API_REQUEST_TIMEOUT_MS = 15_000;
 
 export type BackendPlace = {
   id: string;
@@ -64,6 +67,13 @@ export class BackendError extends Error {
   ) {
     super(message);
     this.name = 'BackendError';
+  }
+}
+
+export class BackendTimeoutError extends BackendError {
+  constructor() {
+    super('The request timed out. Check your connection and try again.');
+    this.name = 'BackendTimeoutError';
   }
 }
 
@@ -137,36 +147,66 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     headers.Authorization = `Bearer ${options.token}`;
   }
 
-  let response: Response;
+  const url = `${baseUrl()}${path}`;
+  const controller = new AbortController();
+  let timedOut = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const cancelFromCaller = () => controller.abort();
+  if (options.signal?.aborted) {
+    cancelFromCaller();
+  } else {
+    options.signal?.addEventListener('abort', cancelFromCaller, { once: true });
+    timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, API_REQUEST_TIMEOUT_MS);
+  }
+
   try {
-    response = await fetch(`${baseUrl()}${path}`, {
+    const response = await fetch(url, {
       method: options.method ?? 'GET',
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: controller.signal,
     });
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (caught) {
+      if (timedOut || options.signal?.aborted) {
+        throw caught;
+      }
+      payload = undefined;
+    }
+
+    if (timedOut) {
+      throw new BackendTimeoutError();
+    }
+
+    if (!response.ok) {
+      const detail =
+        typeof payload === 'object' && payload !== null && 'detail' in payload
+          ? payload.detail
+          : undefined;
+      throw new BackendError(errorMessage(response.status, detail), response.status);
+    }
+
+    return payload as T;
   } catch (caught) {
-    if (caught instanceof BackendError) {
+    if (timedOut) {
+      throw new BackendTimeoutError();
+    }
+    if (options.signal?.aborted || caught instanceof BackendError) {
       throw caught;
     }
     throw new BackendError('Could not reach the Flavorly server. Check your connection and server URL.');
+  } finally {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+    options.signal?.removeEventListener('abort', cancelFromCaller);
   }
-
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = undefined;
-  }
-
-  if (!response.ok) {
-    const detail =
-      typeof payload === 'object' && payload !== null && 'detail' in payload
-        ? payload.detail
-        : undefined;
-    throw new BackendError(errorMessage(response.status, detail), response.status);
-  }
-
-  return payload as T;
 }
 
 export function register(username: string, email: string, password: string): Promise<RegisterResponse> {
