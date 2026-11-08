@@ -1,0 +1,29 @@
+# Python environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Local user ratings database
+ratings.db
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Postman workspace files
+.postman/
+postman/
+
+# Local backup
+app_backup.py

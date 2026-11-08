@@ -46,3 +46,24 @@ yarn-error.*
 
 AGENTS.md
 *.apk
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Python
+**/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local SQLite databases
+backend/*.db
+backend/*.db-journal
+backend/*.db-wal
+backend/*.db-shm
+
+# Node / Expo
+node_modules/
+.expo/
