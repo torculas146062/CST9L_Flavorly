@@ -16,6 +16,7 @@ import type { RatingMap, RatingValue } from '../storage/ratingStore';
 type RatingsValue = {
   ratings: RatingMap;
   ratedCount: number;
+  ratingsRevision: number;
   ready: boolean;
   loading: boolean;
   savingPlaceId: string | null;
@@ -41,6 +42,7 @@ export function RatingsProvider({ children }: { children: ReactNode }) {
   const [savingPlaceId, setSavingPlaceId] = useState<string | null>(null);
   const [deletingPlaceId, setDeletingPlaceId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ratingsRevision, setRatingsRevision] = useState(0);
 
   const isMounted = useRef(true);
   const revision = useRef(0);
@@ -144,6 +146,7 @@ export function RatingsProvider({ children }: { children: ReactNode }) {
           return;
         }
         revision.current += 1;
+        setRatingsRevision((current) => current + 1);
         setRatings((current) => ({
           ...current,
           [placeId]: { value: response.rating as RatingValue, ratedAt: Date.now() },
@@ -184,6 +187,7 @@ export function RatingsProvider({ children }: { children: ReactNode }) {
           return;
         }
         revision.current += 1;
+        setRatingsRevision((current) => current + 1);
         setRatings((current) => {
           const next = { ...current };
           delete next[placeId];
@@ -223,11 +227,13 @@ export function RatingsProvider({ children }: { children: ReactNode }) {
   );
 
   const clearError = useCallback(() => setError(null), []);
+  const ratedCount = Object.keys(ratings).length;
 
   const value = useMemo<RatingsValue>(
     () => ({
       ratings,
-      ratedCount: Object.keys(ratings).length,
+      ratedCount,
+      ratingsRevision,
       ready,
       loading,
       savingPlaceId,
@@ -238,7 +244,7 @@ export function RatingsProvider({ children }: { children: ReactNode }) {
       rate,
       clear,
     }),
-    [ratings, ready, loading, savingPlaceId, deletingPlaceId, error, refresh, clearError, rate, clear],
+    [ratings, ratedCount, ratingsRevision, ready, loading, savingPlaceId, deletingPlaceId, error, refresh, clearError, rate, clear],
   );
 
   return <RatingsContext.Provider value={value}>{children}</RatingsContext.Provider>;

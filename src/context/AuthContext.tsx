@@ -15,6 +15,7 @@ import { clearAccessToken, getAccessToken, saveAccessToken } from '../storage/to
 type AuthValue = {
   ready: boolean;
   user: AuthUser | null;
+  sessionGeneration: number;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -28,7 +29,9 @@ const AuthContext = createContext<AuthValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [ready, setReady] = useState(false);
+  const [sessionGeneration, setSessionGeneration] = useState(0);
   const isMounted = useRef(true);
+  const currentUserId = useRef<string | null>(null);
   const sessionVersion = useRef(0);
   const authAttempt = useRef(0);
   const tokenQueue = useRef<Promise<void>>(Promise.resolve());
@@ -46,8 +49,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       sessionVersion.current += 1;
       authAttempt.current += 1;
+      currentUserId.current = null;
       if (isMounted.current) {
         setUser(null);
+        setSessionGeneration((current) => current + 1);
       }
       await queueTokenChange(async () => {
         if (sessionVersion.current === version + 1) {
@@ -60,13 +65,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const withAuthenticatedRequest = useCallback(
     async <T,>(action: (token: string) => Promise<T>): Promise<T> => {
+      const expectedUserId = user?.id;
       const version = sessionVersion.current;
+      if (!expectedUserId || currentUserId.current !== expectedUserId) {
+        throw new Error('You are not signed in.');
+      }
       const token = await getAccessToken();
-      if (!token || !user || sessionVersion.current !== version) {
+      if (
+        !token ||
+        sessionVersion.current !== version ||
+        currentUserId.current !== expectedUserId
+      ) {
         throw new Error('You are not signed in.');
       }
       try {
-        return await action(token);
+        const result = await action(token);
+        if (
+          sessionVersion.current !== version ||
+          currentUserId.current !== expectedUserId
+        ) {
+          throw new Error('The authenticated account changed before the request completed.');
+        }
+        return result;
       } catch (caught) {
         if (caught instanceof BackendError && caught.status === 401) {
           await expireSession(version);
@@ -96,8 +116,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('This sign-in attempt was cancelled.');
       }
       sessionVersion.current = nextVersion;
+      const signedInUser = toAuthUser(result.user);
+      currentUserId.current = signedInUser.id;
       if (isMounted.current) {
-        setUser(toAuthUser(result.user));
+        setUser(signedInUser);
+        setSessionGeneration((current) => current + 1);
       }
     },
     [queueTokenChange],
@@ -121,7 +144,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             const currentUser = await getCurrentUser(token);
             if (active && sessionVersion.current === version) {
-              setUser(toAuthUser(currentUser));
+              const restoredUser = toAuthUser(currentUser);
+              currentUserId.current = restoredUser.id;
+              setUser(restoredUser);
+              setSessionGeneration((current) => current + 1);
             }
           } catch (caught) {
             if (caught instanceof BackendError && caught.status === 401) {
@@ -170,8 +196,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     authAttempt.current += 1;
     sessionVersion.current += 1;
+    currentUserId.current = null;
     if (isMounted.current) {
       setUser(null);
+      setSessionGeneration((current) => current + 1);
     }
     await queueTokenChange(clearAccessToken);
   }, [queueTokenChange]);
@@ -186,7 +214,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }),
       );
       if (isMounted.current && sessionVersion.current === version) {
-        setUser(toAuthUser(response.user));
+        const updatedUser = toAuthUser(response.user);
+        currentUserId.current = updatedUser.id;
+        setUser(updatedUser);
       }
     },
     [withAuthenticatedRequest],
@@ -200,8 +230,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthValue>(
-    () => ({ ready, user, signIn, signUp, signOut, updateProfile, changePassword, withAuthenticatedRequest }),
-    [ready, user, signIn, signUp, signOut, updateProfile, changePassword, withAuthenticatedRequest],
+    () => ({ ready, user, sessionGeneration, signIn, signUp, signOut, updateProfile, changePassword, withAuthenticatedRequest }),
+    [ready, user, sessionGeneration, signIn, signUp, signOut, updateProfile, changePassword, withAuthenticatedRequest],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

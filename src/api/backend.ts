@@ -46,6 +46,17 @@ export type BackendRating = {
   rated_at: string;
 };
 
+export type BackendRecommendation = BackendPlace & {
+  final_score: number;
+};
+
+export type BackendRecommendationsResponse = {
+  user_id: string;
+  method: 'knn_personalized' | 'quality_fallback';
+  count: number;
+  recommendations: BackendRecommendation[];
+};
+
 export class BackendError extends Error {
   constructor(
     message: string,
@@ -238,6 +249,12 @@ export function deleteRestaurantRating(
     method: 'DELETE',
     token,
   });
+}
+
+export function getRecommendations(
+  token: string,
+): Promise<BackendRecommendationsResponse> {
+  return request('/recommendations/me?top_n=5', { token });
 }
 
 export function toAuthUser(user: ApiUser) {

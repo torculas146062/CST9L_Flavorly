@@ -1,51 +1,44 @@
-import { MAX_RECOMMENDATIONS, MIN_RATINGS_FOR_RECOMMENDATIONS } from '../constants/recommend';
-import type { RatingMap } from '../storage/ratingStore';
+import type { BackendRecommendation } from '../api/backend';
+import { toCatalogPlace } from '../api/catalog';
 import type { Place } from '../types/place';
 
-export type Recommendation = {
-  place: Place;
-  /** Filled in by the ranking API; empty while recommendations are placeholders. */
-  reason?: string;
-};
+/**
+ * Adapts one ranked backend result without changing its canonical ID or ranking order.
+ * Matching nearby metadata is only an optional source for photos/contact details.
+ */
+export function toRecommendationPlace(recommendation: BackendRecommendation, cached?: Place): Place {
+  const place = toCatalogPlace(recommendation);
 
-export type RecommendationResult =
-  | { status: 'not-enough-ratings'; ratedCount: number; needed: number }
-  | { status: 'ready'; recommendations: Recommendation[]; isPlaceholder: boolean };
-
-function shuffled<T>(items: T[]): T[] {
-  const copy = [...items];
-
-  for (let index = copy.length - 1; index > 0; index -= 1) {
-    const swapWith = Math.floor(Math.random() * (index + 1));
-    [copy[index], copy[swapWith]] = [copy[swapWith], copy[index]];
-  }
-
-  return copy;
+  return {
+    ...cached,
+    ...place,
+    id: recommendation.id,
+    name: recommendation.name,
+    kindLabel: recommendation.kindLabel,
+    latitude: recommendation.latitude,
+    longitude: recommendation.longitude,
+    distanceMeters:
+      recommendation.distance_km != null
+        ? recommendation.distance_km * 1000
+        : cached?.distanceMeters ?? place.distanceMeters,
+    rating: recommendation.rating ?? undefined,
+    ratingCount: recommendation.ratingCount ?? undefined,
+    address: recommendation.address ?? cached?.address,
+    phone: cached?.phone,
+    website: cached?.website,
+    photoUrl: cached?.photoUrl,
+    source: 'backend',
+    catalogSupported: true,
+  };
 }
 
-/**
- * PLACEHOLDER. Real recommendations are meant to come from a ranking API that is not
- * wired up yet, so for now this just returns random places the user has not rated.
- *
- * When the API lands, replace the section below with a request that posts the ratings
- * plus the stored places, and build the rows from the response (set `isPlaceholder`
- * to false and fill `reason` from the API).
- */
-export function buildRecommendations(allPlaces: Place[], ratings: RatingMap): RecommendationResult {
-  const ratedIds = Object.keys(ratings).filter((id) => allPlaces.some((place) => place.id === id));
-
-  if (ratedIds.length < MIN_RATINGS_FOR_RECOMMENDATIONS) {
-    return {
-      status: 'not-enough-ratings',
-      ratedCount: ratedIds.length,
-      needed: MIN_RATINGS_FOR_RECOMMENDATIONS,
-    };
-  }
-
-  const unrated = allPlaces.filter((place) => !ratings[place.id]);
-  const recommendations = shuffled(unrated)
-    .slice(0, MAX_RECOMMENDATIONS)
-    .map((place) => ({ place }));
-
-  return { status: 'ready', recommendations, isPlaceholder: true };
+/** The backend response is already ranked; this adapter intentionally preserves order. */
+export function mapRecommendations(
+  recommendations: BackendRecommendation[],
+  cachedPlaces: Place[],
+): Place[] {
+  const cachedById = new Map(cachedPlaces.map((place) => [place.id, place]));
+  return recommendations.map((recommendation) =>
+    toRecommendationPlace(recommendation, cachedById.get(recommendation.id)),
+  );
 }

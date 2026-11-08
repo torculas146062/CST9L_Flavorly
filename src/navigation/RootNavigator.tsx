@@ -29,7 +29,7 @@ const navigationTheme = {
 };
 
 export function RootNavigator() {
-  const { ready, user } = useAuth();
+  const { ready, user, sessionGeneration } = useAuth();
 
   // Validate the saved backend session before rendering either navigation stack.
   if (!ready) {
@@ -45,7 +45,12 @@ export function RootNavigator() {
       <Stack.Navigator>
         {user ? (
           <>
-            <Stack.Screen name="MainTabs" component={MainTabs} options={{ headerShown: false }} />
+            <Stack.Screen
+              name="MainTabs"
+              component={MainTabs}
+              navigationKey={`${user.id}:${sessionGeneration}`}
+              options={{ headerShown: false }}
+            />
             <Stack.Screen
               name="PlaceDetails"
               component={PlaceDetailsScreen}
