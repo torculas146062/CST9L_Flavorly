@@ -12,14 +12,15 @@ import { useNearbyPlaces } from '../context/NearbyPlacesContext';
 import { useRatings } from '../context/RatingsContext';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, radius, spacing, typography } from '../theme';
-import type { Place } from '../types/place';
-import { formatCount } from '../utils/format';
+import type { Coordinates, Place } from '../types/place';
+import { formatCount, formatDistance } from '../utils/format';
+import { distanceInMeters } from '../utils/geo';
 import { mapRecommendations } from '../utils/recommend';
 
 type RecommendNavigation = NativeStackNavigationProp<RootStackParamList>;
 
 type RecommendationState = {
-  ownerKey: string;
+  scopeKey: string;
   method: BackendRecommendationsResponse['method'] | null;
   places: Place[];
   loading: boolean;
@@ -42,6 +43,8 @@ type RecommendationLogContext = {
 };
 
 const EMPTY_PLACES: Place[] = [];
+const RECOMMENDATION_RADIUS_KM = 5;
+const SIGNIFICANT_LOCATION_CHANGE_METERS = 500;
 
 function logRecommendation(event: string, context: RecommendationLogContext) {
   if (__DEV__) {
@@ -56,14 +59,38 @@ function messageOf(caught: unknown): string {
 }
 
 export function RecommendScreen() {
-  const { allPlaces } = useNearbyPlaces();
+  const {
+    allPlaces,
+    location,
+    locationStatus,
+    refreshLocation,
+  } = useNearbyPlaces();
   const { ratingsRevision } = useRatings();
   const { user, sessionGeneration, withAuthenticatedRequest } = useAuth();
   const navigation = useNavigation<RecommendNavigation>();
   const userId = user?.id ?? null;
   const ownerKey = userId ? `${userId}:${sessionGeneration}` : '';
+  const [broaderResults, setBroaderResults] = useState(false);
+  const [lastRecommendationLocation, setLastRecommendationLocation] = useState<Coordinates | null>(null);
+  let recommendationLocation = lastRecommendationLocation;
+  if (locationStatus === 'denied' || locationStatus === 'unavailable') {
+    recommendationLocation = null;
+  } else if (
+    location &&
+    (!lastRecommendationLocation ||
+      distanceInMeters(lastRecommendationLocation, location) >= SIGNIFICANT_LOCATION_CHANGE_METERS)
+  ) {
+    recommendationLocation = location;
+  }
+  const locationFilter = recommendationLocation && !broaderResults ? recommendationLocation : null;
+  const locationFilterKey = locationStatus === 'loading' && !recommendationLocation
+    ? 'location-loading'
+    : locationFilter
+      ? `${locationFilter.latitude},${locationFilter.longitude}:${RECOMMENDATION_RADIUS_KM}`
+      : 'unfiltered';
+  const requestScopeKey = `${ownerKey}:${ratingsRevision}:${locationFilterKey}`;
   const [state, setState] = useState<RecommendationState>({
-    ownerKey,
+    scopeKey: requestScopeKey,
     method: null,
     places: EMPTY_PLACES,
     loading: Boolean(userId),
@@ -72,7 +99,7 @@ export function RecommendScreen() {
 
   const mounted = useRef(true);
   const focused = useRef(false);
-  const currentOwnerKey = useRef(ownerKey);
+  const currentRequestScopeKey = useRef(requestScopeKey);
   const currentUserId = useRef(userId);
   const currentRatingsRevision = useRef(ratingsRevision);
   const currentPlaces = useRef(allPlaces);
@@ -87,24 +114,38 @@ export function RecommendScreen() {
     requestGeneration: number;
   } | null>(null);
   useLayoutEffect(() => {
-    if (currentOwnerKey.current !== ownerKey) {
-      currentOwnerKey.current = ownerKey;
+    if (locationStatus === 'denied' || locationStatus === 'unavailable') {
+      setLastRecommendationLocation(null);
+    }
+    if (recommendationLocation && recommendationLocation !== lastRecommendationLocation) {
+      setLastRecommendationLocation(recommendationLocation);
+    }
+    if (currentRequestScopeKey.current !== requestScopeKey) {
+      currentRequestScopeKey.current = requestScopeKey;
       requestId.current += 1;
       activeRequest.current = null;
       lastStartedKey.current = '';
       latestResponse.current = null;
       setState({
-        ownerKey,
+        scopeKey: requestScopeKey,
         method: null,
         places: EMPTY_PLACES,
-        loading: Boolean(userId),
+        loading: Boolean(userId) && locationStatus !== 'loading',
         error: null,
       });
     }
     currentUserId.current = userId;
     currentRatingsRevision.current = ratingsRevision;
     currentPlaces.current = allPlaces;
-  }, [ownerKey, userId, ratingsRevision, allPlaces]);
+  }, [
+    requestScopeKey,
+    userId,
+    ratingsRevision,
+    allPlaces,
+    recommendationLocation,
+    lastRecommendationLocation,
+    locationStatus,
+  ]);
 
   useEffect(() => {
     mounted.current = true;
@@ -118,10 +159,10 @@ export function RecommendScreen() {
   const fetchRecommendations = useCallback(
     async (focusId: number, force = false) => {
       const requestUserId = userId;
-      const requestOwnerKey = ownerKey;
+      const requestScope = requestScopeKey;
       if (!requestUserId) {
         setState({
-          ownerKey: '',
+          scopeKey: requestScope,
           method: null,
           places: EMPTY_PLACES,
           loading: false,
@@ -130,7 +171,11 @@ export function RecommendScreen() {
         return;
       }
 
-      const requestKey = `${requestOwnerKey}:${ratingsRevision}:${focusId}`;
+      if (locationStatus === 'loading') {
+        return;
+      }
+
+      const requestKey = `${requestScope}:${focusId}`;
       if (activeRequest.current?.key === requestKey || (!force && lastStartedKey.current === requestKey)) {
         return;
       }
@@ -145,19 +190,21 @@ export function RecommendScreen() {
         accepted: false,
       });
       setState((current) => ({
-        ownerKey: requestOwnerKey,
-        method: current.ownerKey === requestOwnerKey ? current.method : null,
-        places: current.ownerKey === requestOwnerKey ? current.places : EMPTY_PLACES,
+        scopeKey: requestScope,
+        method: current.scopeKey === requestScope ? current.method : null,
+        places: current.scopeKey === requestScope ? current.places : EMPTY_PLACES,
         loading: true,
         error: null,
       }));
 
       try {
-        const response = await withAuthenticatedRequest((token) => getRecommendations(token));
+        const response = await withAuthenticatedRequest((token) =>
+          getRecommendations(token, locationFilter ?? undefined, RECOMMENDATION_RADIUS_KM),
+        );
         const requestIsStale =
           !mounted.current ||
           requestId.current !== id ||
-          currentOwnerKey.current !== requestOwnerKey ||
+          currentRequestScopeKey.current !== requestScope ||
           currentUserId.current !== requestUserId ||
           currentRatingsRevision.current !== ratingsRevision;
         const ownerMatches = response.user_id === requestUserId;
@@ -184,7 +231,7 @@ export function RecommendScreen() {
           requestGeneration: id,
         };
         setState({
-          ownerKey: requestOwnerKey,
+          scopeKey: requestScope,
           method: response.method,
           places: mapRecommendations(response.recommendations, currentPlaces.current),
           loading: false,
@@ -200,14 +247,14 @@ export function RecommendScreen() {
         if (
           mounted.current &&
           requestId.current === id &&
-          currentOwnerKey.current === requestOwnerKey &&
+          currentRequestScopeKey.current === requestScope &&
           currentUserId.current === requestUserId &&
           currentRatingsRevision.current === ratingsRevision
         ) {
           setState((current) => ({
-            ownerKey: requestOwnerKey,
-            method: current.ownerKey === requestOwnerKey ? current.method : null,
-            places: current.ownerKey === requestOwnerKey ? current.places : EMPTY_PLACES,
+            scopeKey: requestScope,
+            method: current.scopeKey === requestScope ? current.method : null,
+            places: current.scopeKey === requestScope ? current.places : EMPTY_PLACES,
             loading: false,
             error: messageOf(caught),
           }));
@@ -218,7 +265,7 @@ export function RecommendScreen() {
         }
       }
     },
-    [ownerKey, ratingsRevision, userId, withAuthenticatedRequest],
+    [locationFilter, locationStatus, ratingsRevision, requestScopeKey, userId, withAuthenticatedRequest],
   );
 
   useFocusEffect(
@@ -238,13 +285,13 @@ export function RecommendScreen() {
   };
 
   const visibleState =
-    state.ownerKey === ownerKey
+    state.scopeKey === requestScopeKey
       ? state
       : {
-          ownerKey,
+          scopeKey: requestScopeKey,
           method: null,
           places: EMPTY_PLACES,
-          loading: Boolean(userId),
+          loading: Boolean(userId) && locationStatus !== 'loading',
           error: null,
         };
   useEffect(() => {
@@ -269,10 +316,26 @@ export function RecommendScreen() {
       : visibleState.method === 'quality_fallback'
         ? 'Quality-based recommendations'
         : 'Recommended for you';
+  const screenSubtitle = `${methodLabel} · ${
+    locationStatus === 'loading' && !recommendationLocation
+      ? 'Getting device location'
+      : locationFilter
+        ? `Within ${RECOMMENDATION_RADIUS_KM} km`
+        : 'Not distance-filtered'
+  }`;
+  const locationNotice = locationFilter
+    ? `Recommendations are filtered to within ${RECOMMENDATION_RADIUS_KM} km of your device location.`
+    : broaderResults && recommendationLocation
+      ? 'Showing broader recommendations without distance filtering.'
+      : !recommendationLocation && locationStatus !== 'loading'
+        ? locationStatus === 'denied'
+          ? 'Location permission is off. These recommendations are not distance-filtered.'
+          : 'Device location is unavailable. These recommendations are not distance-filtered.'
+        : null;
 
   if (visibleState.loading && visibleState.places.length === 0) {
     return (
-      <Screen title="Recommend" subtitle="Recommended for you">
+      <Screen title="Recommend" subtitle={screenSubtitle}>
         <ActivityIndicator style={styles.spinner} color={colors.primaryStrong} />
       </Screen>
     );
@@ -280,8 +343,12 @@ export function RecommendScreen() {
 
   if (visibleState.error && visibleState.places.length === 0) {
     return (
-      <Screen title="Recommend" subtitle="Recommended for you">
+      <Screen title="Recommend" subtitle={screenSubtitle}>
         <View style={styles.message}>
+          {locationNotice ? <Text style={styles.notice}>{locationNotice}</Text> : null}
+          {!recommendationLocation && locationStatus !== 'loading' ? (
+            <PrimaryButton label="Retry location" onPress={() => void refreshLocation()} />
+          ) : null}
           <Text style={styles.error}>{visibleState.error}</Text>
           <PrimaryButton label="Try again" onPress={retry} />
         </View>
@@ -291,17 +358,32 @@ export function RecommendScreen() {
 
   if (!visibleState.loading && !visibleState.error && visibleState.places.length === 0) {
     return (
-      <Screen title="Recommend" subtitle={methodLabel}>
+      <Screen title="Recommend" subtitle={screenSubtitle}>
         <View style={styles.message}>
-          <Text style={styles.empty}>There are no recommendations available right now. Try again later.</Text>
-          <PrimaryButton label="Refresh" onPress={retry} />
+          {locationNotice ? <Text style={styles.notice}>{locationNotice}</Text> : null}
+          <Text style={styles.empty}>
+            {locationFilter
+              ? `There are no recommendations within ${RECOMMENDATION_RADIUS_KM} km right now.`
+              : 'There are no recommendations available right now. Try again later.'}
+          </Text>
+          {locationFilter ? (
+            <PrimaryButton
+              label="View broader recommendations"
+              onPress={() => setBroaderResults(true)}
+            />
+          ) : (
+            <PrimaryButton label="Refresh" onPress={retry} />
+          )}
+          {!recommendationLocation && locationStatus !== 'loading' ? (
+            <PrimaryButton label="Retry location" onPress={() => void refreshLocation()} />
+          ) : null}
         </View>
       </Screen>
     );
   }
 
   return (
-    <Screen title="Recommend" subtitle={methodLabel}>
+    <Screen title="Recommend" subtitle={screenSubtitle}>
       <FlatList
         data={visibleState.places}
         keyExtractor={(place) => place.id}
@@ -314,7 +396,29 @@ export function RecommendScreen() {
             tintColor={colors.primaryStrong}
           />
         }
-        ListHeaderComponent={visibleState.error ? <Text style={styles.error}>{visibleState.error}</Text> : undefined}
+        ListHeaderComponent={
+          locationNotice || visibleState.error ? (
+            <View style={styles.locationNotice}>
+              {locationNotice ? <Text style={styles.notice}>{locationNotice}</Text> : null}
+              {visibleState.error ? <Text style={styles.error}>{visibleState.error}</Text> : null}
+              {recommendationLocation ? (
+                broaderResults ? (
+                  <Pressable onPress={() => setBroaderResults(false)}>
+                    <Text style={styles.locationAction}>Back to nearby recommendations</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable onPress={() => void refreshLocation()}>
+                    <Text style={styles.locationAction}>Refresh device location</Text>
+                  </Pressable>
+                )
+              ) : (
+                <Pressable onPress={() => void refreshLocation()}>
+                  <Text style={styles.locationAction}>Retry location</Text>
+                </Pressable>
+              )}
+            </View>
+          ) : undefined
+        }
         renderItem={({ item }) => (
           <RecommendationRow
             place={item}
@@ -350,6 +454,9 @@ function RecommendationRow({ place, onPress }: { place: Place; onPress: () => vo
             {place.address}
           </Text>
         ) : null}
+        {place.recommendationDistanceKm != null ? (
+          <Text style={typography.caption}>{formatDistance(place.recommendationDistanceKm * 1000)} away</Text>
+        ) : null}
         {place.rating != null ? (
           <Text style={styles.rating}>
             ★ {place.rating.toFixed(1)}
@@ -370,6 +477,19 @@ const styles = StyleSheet.create({
   message: {
     gap: spacing.md,
     marginTop: spacing.lg,
+  },
+  locationNotice: {
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  notice: {
+    ...typography.caption,
+    color: colors.textMuted,
+  },
+  locationAction: {
+    ...typography.caption,
+    color: colors.primaryStrong,
+    fontWeight: '700',
   },
   error: {
     ...typography.caption,

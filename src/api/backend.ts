@@ -253,8 +253,25 @@ export function deleteRestaurantRating(
 
 export function getRecommendations(
   token: string,
+  coordinates?: { latitude: number; longitude: number },
+  radiusKm = 5,
 ): Promise<BackendRecommendationsResponse> {
-  return request('/recommendations/me?top_n=5', { token });
+  const query = new URLSearchParams({ top_n: '5' });
+  const coordinatesValid =
+    coordinates != null &&
+    Number.isFinite(coordinates.latitude) &&
+    Number.isFinite(coordinates.longitude) &&
+    Math.abs(coordinates.latitude) <= 90 &&
+    Math.abs(coordinates.longitude) <= 180;
+  const radiusValid = Number.isFinite(radiusKm) && radiusKm > 0 && radiusKm <= 100;
+
+  if (coordinatesValid && radiusValid) {
+    query.set('lat', String(coordinates.latitude));
+    query.set('lon', String(coordinates.longitude));
+    query.set('radius_km', String(radiusKm));
+  }
+
+  return request(`/recommendations/me?${query.toString()}`, { token });
 }
 
 export function toAuthUser(user: ApiUser) {

@@ -18,11 +18,19 @@ export function toRecommendationPlace(recommendation: BackendRecommendation, cac
     latitude: recommendation.latitude,
     longitude: recommendation.longitude,
     distanceMeters:
-      recommendation.distance_km != null
+      recommendation.distance_km != null &&
+      Number.isFinite(recommendation.distance_km) &&
+      recommendation.distance_km >= 0
         ? recommendation.distance_km * 1000
         : cached?.distanceMeters ?? place.distanceMeters,
     rating: recommendation.rating ?? undefined,
     ratingCount: recommendation.ratingCount ?? undefined,
+    recommendationDistanceKm:
+      recommendation.distance_km != null &&
+      Number.isFinite(recommendation.distance_km) &&
+      recommendation.distance_km >= 0
+        ? recommendation.distance_km
+        : undefined,
     address: recommendation.address ?? cached?.address,
     phone: cached?.phone,
     website: cached?.website,

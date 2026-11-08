@@ -52,6 +52,8 @@ export type Place = Coordinates & {
   distanceMeters: number;
   rating?: number;
   ratingCount?: number;
+  /** Backend distance for a location-filtered recommendation, when provided. */
+  recommendationDistanceKm?: number;
   /** 0–4, matching Google's PRICE_LEVEL_* values. */
   priceLevel?: number;
   address?: string;
