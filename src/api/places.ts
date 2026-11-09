@@ -1,6 +1,9 @@
 import { fetchGoogleNearbyPlaces, GOOGLE_PLACES_API_KEY } from './googlePlaces';
 import { fetchOsmNearbyPlaces } from './overpass';
+import { getNearbyBackendPlaces } from './backend';
+import { rememberCatalogPlace, toCatalogPlace } from './catalog';
 import { hasGoogleReviews, type Coordinates, type Place, type SearchArea } from '../types/place';
+import { distanceInMeters } from '../utils/geo';
 
 export type NearbyPlacesOptions = {
   /** Circle to search — usually the current map viewport. */
@@ -10,27 +13,62 @@ export type NearbyPlacesOptions = {
 };
 
 /**
- * Google Places (New) is the primary source because it brings ratings, price level
- * and photos. OpenStreetMap via Overpass stays as the fallback so the app still works
- * without a key, when the key is rate limited, or when the request fails.
+ * The backend catalog supplies rateable restaurants; Google Places enriches discovery
+ * with ratings, price level and photos. OpenStreetMap remains a discovery fallback.
  *
- * Only places with Google Maps reviews survive: that filter drops every OpenStreetMap
- * result, so without a working Google key a search legitimately returns nothing.
+ * Google results without reviews and OpenStreetMap results are not included in the
+ * returned discovery list. Backend catalog results remain available without Google.
  */
 export async function fetchNearbyPlaces({ area, origin }: NearbyPlacesOptions): Promise<Place[]> {
-  let places: Place[] = [];
+  let catalogPlaces: Place[] = [];
+  let googlePlaces: Place[] = [];
+
+  try {
+    const result = await getNearbyBackendPlaces(
+      area.center.latitude,
+      area.center.longitude,
+      Math.min(area.radiusMeters / 1000, 100),
+      50,
+    );
+    result.places.forEach(rememberCatalogPlace);
+    catalogPlaces = result.places.map((place) => ({
+      ...toCatalogPlace(place),
+      distanceMeters: distanceInMeters(origin, place),
+    }));
+  } catch {
+    // Keep Google-based discovery available when the backend is offline.
+  }
 
   if (GOOGLE_PLACES_API_KEY) {
     try {
-      places = await fetchGoogleNearbyPlaces({ area, origin });
+      googlePlaces = await fetchGoogleNearbyPlaces({ area, origin });
     } catch {
       // fall through to OpenStreetMap
     }
   }
 
-  if (places.length === 0) {
-    places = await fetchOsmNearbyPlaces({ area, origin });
+  if (googlePlaces.length === 0 && catalogPlaces.length === 0) {
+    googlePlaces = await fetchOsmNearbyPlaces({ area, origin });
   }
 
-  return places.filter(hasGoogleReviews);
+  const placesById = new Map(catalogPlaces.map((place) => [place.id, place]));
+  for (const place of googlePlaces) {
+    const catalogPlace = placesById.get(place.id);
+    placesById.set(
+      place.id,
+      catalogPlace
+        ? {
+            ...catalogPlace,
+            ...place,
+            kindLabel: place.kindLabel || catalogPlace.kindLabel,
+            rating: place.rating ?? catalogPlace.rating,
+            ratingCount: place.ratingCount ?? catalogPlace.ratingCount,
+            address: place.address ?? catalogPlace.address,
+            catalogSupported: true,
+          }
+        : place,
+    );
+  }
+
+  return [...placesById.values()].filter(hasGoogleReviews);
 }

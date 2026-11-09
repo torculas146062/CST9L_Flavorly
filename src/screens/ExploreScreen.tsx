@@ -42,7 +42,7 @@ export function ExploreScreen() {
             <ActivityIndicator style={styles.spinner} color={colors.primaryStrong} />
           ) : (
             <Text style={styles.empty}>
-              No places with Google reviews yet. Open the map and pan around to load some, then pull down to
+              No restaurants in this area yet. Open the map and pan around to load some, then pull down to
               refresh.
             </Text>
           )
@@ -114,6 +114,9 @@ function Attribution({ places, locationOff, storedCount }: AttributionProps) {
   return (
     <View style={styles.attribution}>
       {usesGoogle ? <Text style={styles.attributionText}>Place data and ratings from Google</Text> : null}
+      {places.some((place) => place.source === 'backend') ? (
+        <Text style={styles.attributionText}>Restaurant catalog data from Flavorly</Text>
+      ) : null}
       {usesOsm ? <Text style={styles.attributionText}>Place data © OpenStreetMap contributors</Text> : null}
       <Text style={styles.attributionText}>
         Distances are measured from{' '}

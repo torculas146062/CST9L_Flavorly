@@ -1,195 +1,354 @@
 # Flavorly
 
-A React Native app for finding, saving, and recommending places to eat.
+**Location-Aware Restaurant Recommendation System Using Unsupervised K-Nearest Neighbors (KNN)**
 
-## Stack
+Flavorly is a mobile restaurant recommendation application developed using React Native, Expo, Python FastAPI, SQLite, and Scikit-learn.
 
-- [Expo](https://docs.expo.dev/) SDK 58 (managed workflow, runs in Expo Go)
-- React Native 0.88 + React 19
-- [React Navigation](https://reactnavigation.org/) 7 — native stack + bottom tabs
-- TypeScript (strict)
-- 5-star ratings stored on the device, used for content-based recommendations
-- `@react-native-async-storage/async-storage` — on-device place cache (works in Expo Go and on web)
-- [react-native-maps](https://github.com/react-native-maps/react-native-maps) — Google Maps on Android, Apple Maps on iOS
-- [expo-location](https://docs.expo.dev/versions/v58.0.0/sdk/location/) — user position + permission flow
-- Places, ratings and price level from the [Google Places API (New)](https://developers.google.com/maps/documentation/places/web-service/nearby-search)
-- [OpenStreetMap](https://www.openstreetmap.org/) via the [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) as a key-free fallback
-- Web support via `react-dom` + `react-native-web` (handy for quick browser previews)
+The application allows users to discover nearby restaurants, submit ratings, and receive personalized Top-5 restaurant recommendations using a KNN-based similarity approach and geographic filtering.
 
-## Getting started
+## 1. Prerequisites
 
-```bash
-npm install
-cp .env.example .env   # then paste your Places API key
-npm start              # then scan the QR code with Expo Go
+Install the following before running the application:
+
+| Software | Purpose |
+|---|---|
+| Python 3.11 (64-bit) | FastAPI backend and Machine Learning |
+| Node.js (LTS) | React Native / Expo development |
+| Git | Clone the repository |
+| Visual Studio Code | Project development and execution |
+| Expo Go | Run the application on a mobile device |
+
+**Download links:**
+
+- Python: https://www.python.org/downloads/
+- Node.js: https://nodejs.org/
+- Git: https://git-scm.com/
+- VS Code: https://code.visualstudio.com/
+- Expo Go: https://expo.dev/go
+
+Verify the installations using PowerShell:
+
+```powershell
+py -3.11 --version
+node --version
+npm --version
+git --version
 ```
 
-`.env` holds `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`. Expo inlines `EXPO_PUBLIC_*` variables
-into the bundle at build time, and `.env` is git-ignored — never commit the key.
-Without a key the app still runs, but searches return nothing: only Google places that
-already have Maps reviews are shown, and OpenStreetMap carries none.
+These commands check whether the required development tools are installed.
 
-Other scripts:
+## 2. Clone the Repository
 
-```bash
-npm run android   # open on a connected Android device/emulator
-npm run ios       # open on iOS (macOS only; on Linux/Windows use Expo Go)
-npm run web       # run in the browser
-npm run typecheck # tsc --noEmit
+Open PowerShell or the VS Code terminal.
+
+```powershell
+https://github.com/torculas146062/CST9L_Flavorly.git
 ```
 
-## Project structure
+Downloads the complete Flavorly project from GitHub.
 
-```
-App.tsx                        # SafeAreaProvider + navigation root
-index.ts                       # Expo entry point (registerRootComponent)
-src/
-  navigation/
-    RootNavigator.tsx          # NavigationContainer + root native stack
-    MainTabs.tsx               # Bottom tabs: Map, Explore, Recommend, Profile
-    types.ts                   # Typed route param lists
-  screens/
-    MyRatingsScreen.tsx         # Everything the user has rated
-    LoginScreen.tsx             # Email + password sign-in (first screen when signed out)
-    SignUpScreen.tsx            # Create a local account
-    EditProfileScreen.tsx       # Change name and email
-    MapScreen.tsx              # Map with user location + dining markers (native)
-    MapScreen.web.tsx          # Web fallback — react-native-maps has no web build
-    ExploreScreen.tsx          # Nearby dining list, sorted by distance
-    RecommendScreen.tsx
-    ProfileScreen.tsx
-    PlaceDetailsScreen.tsx     # Stack screen pushed from Map/Explore
-  components/
-    Screen.tsx                 # Safe-area + title wrapper used by tab screens
-    Placeholder.tsx            # Dashed placeholder box for unfinished screens
-    PlacePhoto.tsx             # Remote photo with a branded fallback tile
-    PlacePreviewMap.tsx        # Static mini map on the details screen; tapping it opens the place in Google Maps (+ .web.tsx)
-    AuthShell.tsx              # Shared frame for the sign-in / sign-up forms
-    FormField.tsx              # Labelled text input with an error line
-    PrimaryButton.tsx          # Primary / secondary / danger button with a busy state
-  context/
-    NearbyPlacesContext.tsx    # Shared viewport + merged places for both tabs
-    AuthContext.tsx            # Local session: sign in, sign up, sign out, edit profile
-  storage/
-    placeStore.ts              # In-memory collection, merged then persisted
-    mapViewStore.ts            # Last map position, saved and restored
-    ratingStore.ts             # User ratings per place
-    authStore.ts               # Local accounts + session (salted password hashes)
-    photoFiles.ts              # Images as files named <origin>__<place>.<ext> (+ .web stub)
-    backup.ts                  # Export / import / clear every storage key
-  hooks/
-    usePlacePhoto.ts           # Google photo → Facebook avatar → map preview
-  context/
-    RatingsContext.tsx         # User ratings, shared across screens
-  api/
-    places.ts                  # Google first, OpenStreetMap fallback
-    googlePlaces.ts            # Nearby Search (New): ratings, price level, photos
-    overpass.ts                # Overpass query, parsing, distance sort, mirror fallback
-    placeImage.ts              # Google -> Facebook -> website preview image
-    embedImage.ts              # Page fetch + link-preview tag extraction
-    facebookPicture.ts         # Detects Facebook's placeholder avatars
-    imageBytes.ts              # Image download for inspection/storage
-  types/
-    place.ts                   # Place model
-  constants/
-    map.ts                     # Default centre, radius bounds, debounce window
-  utils/
-    storageTransfer.ts         # Save-as-file + file pickers (native) with .web twin
-    photoArchive.ts            # Zip / unzip the photo directory
-    fingerprint.ts             # FNV-1a content fingerprint
-    imageSize.ts               # Header-only JPEG/PNG/GIF/WebP dimensions
-    format.ts                  # Distance, rating count, price level formatting
-    maps.ts                    # Opens a place in Google Maps (place id, else coordinates)
-    geo.ts                     # Haversine distance, viewport -> search circle
-  theme/
-    index.ts                   # Colors, spacing, radius, typography tokens
+```powershell
+cd CST9L_Flavorly
 ```
 
-## Adding screens
+Opens the downloaded project directory.
 
-1. Create the screen in `src/screens/`.
-2. Add its route to `RootStackParamList` (or `MainTabParamList`) in `src/navigation/types.ts`.
-3. Register it in `src/navigation/RootNavigator.tsx` (or `MainTabs.tsx`).
+If the complete application is still on the integration branch, run:
 
-## Accounts
+```powershell
+git switch feature/full-system-integration
+```
 
-- **The app requires an account.** Until one is signed in, `RootNavigator` renders only `Login` / `SignUp`; the tab navigation and the places/ratings providers mount after sign-in, so the login screen never fires searches.
-- **There is no backend yet.** Accounts live in `flavorly:auth:v1` (`src/storage/authStore.ts`) and are read through `src/context/AuthContext.tsx` (`useAuth()`): `signIn`, `signUp`, `signOut`, `updateProfile`. The signed-in user id is stored alongside them, which is what survives an app restart.
-- Passwords are kept as a salted FNV-1a hash (`<salt>$<digest>`), never in plain text. That only avoids writing the raw password — it is **not** real authentication, and anyone with device access can read or replace the store.
-- **Logging out clears the session and nothing else.** Places, photos and ratings live in their own stores and stay on the device; `DataProviders` in `App.tsx` just unmounts, so the next sign-in reads them back from disk.
-- Profile shows the account's name, email and initials, with **My Ratings**, **Edit profile** (name + email + password) and **Log out**. `email` is the account key, so it must stay unique.
-- **Changing the password** (`changePassword(current, next)`) re-checks the current password before writing a fresh salt + hash; it rejects a wrong current password, anything shorter than `MIN_PASSWORD_LENGTH` (6), and reusing the same password. The fields clear and a confirmation line appears on success.
-- Signed-in state is persisted, so a normal app restart goes straight to the tabs.
+This selects the branch containing the combined frontend and backend. Skip this command if the integration has already been merged into `main`.
 
-## Ratings & recommendations
+### Project Structure
 
-- Every place has a **5-star rating widget** on its details screen (`src/components/StarRating.tsx`): tap a star, or drag across the row like a slider — the preview follows your finger and the value commits on release, while a plain tap still lands on its exact star. Ratings are persisted per place in `flavorly:ratings:v1` (`src/storage/ratingStore.ts`, exposed through `src/context/RatingsContext.tsx`), alongside the other stores — flushed when the app backgrounds.
-- **Profile → My Ratings** lists everything you have rated, newest first, with the star row (still editable), the date and a Clear action, plus your average. Ratings for places no longer in the saved collection are counted but not listed.
-- The **Recommend** tab is built from those ratings, not from Google's. It needs `MIN_RATINGS_FOR_RECOMMENDATIONS` (5, in `src/constants/recommend.ts`) ratings before it will say anything: until then it shows how many are missing and a shortcut to Explore.
-- **Ranking is a placeholder.** `buildRecommendations` is meant to call a ranking service that is not built yet, so today it returns a random selection of unrated places and the list says so in its footer (`isPlaceholder`). The ratings gate still applies, because that is the product behaviour.
-- To wire the real thing up, replace the section marked `PLACEHOLDER` in `src/utils/recommend.ts`: post the ratings plus `allPlaces`, build `Recommendation[]` from the response, fill `reason` per row and set `isPlaceholder: false`. `RecommendationRow` already renders `reason` only when present.
+```text
+CST9L_Flavorly/
+├── backend/
+│   ├── app.py
+│   ├── auth.py
+│   ├── model_bundle.joblib
+│   └── requirements.txt
+├── src/
+├── App.tsx
+├── package.json
+├── package-lock.json
+├── app.json
+├── .gitignore
+└── README.md
+```
 
-## Developer settings
+## 3. Backend Setup (Python FastAPI)
 
-`Profile → Developer settings` (development builds only, `__DEV__`) shows how many bytes each storage key holds, how many photo files exist, and lets you:
+The backend handles user authentication, restaurant data, SQLite ratings, and KNN-based recommendation calculations.
 
-- **Save data (JSON)** — the stores and their metadata. `Directory.pickDirectoryAsync()` asks where to put the file; if you cancel, it is written to the app's documents directory and the path is reported. On web it is a normal browser download.
-- **Clear photos** — deletes the stored images; places and ratings are untouched.
-- **Save / Import photos (ZIP)** — image bytes are kept out of the JSON export entirely. `fflate` zips `<documents>/flavorly-photos/` into `flavorly-photos-<timestamp>.zip`; importing a zip writes the files back (deterministic names, so the JSON keeps matching) and reports how many were restored.
-- **Import data** by picking a JSON file or pasting it. Exports from **any version** are accepted — the `app` field is not checked, so an older `palate-path` backup imports fine. Only known keys are written, each value must be a string, and the app reloads afterwards.
-- **Clear** storage + photos behind a confirmation.
+### Step 1 — Open the backend directory
 
-Both are device features: browsers have no writable app directory, so the ZIP buttons are disabled on web. `src/storage/backup.ts` is the single place that knows the storage keys — add new stores there so they are included in exports.
+```powershell
+cd backend
+```
 
-## Data sources
+Changes the terminal directory to the Python backend.
 
-| Concern | Source |
-| --- | --- |
-| Map rendering | `react-native-maps` — Google Maps on Android, Apple Maps on iOS (no key needed in Expo Go) |
-| Dining places, ratings, price level, photos | Google Places API (New) — Nearby Search, `src/api/googlePlaces.ts` |
-| Fallback dining places | OpenStreetMap via the Overpass API — `src/api/overpass.ts` |
-| User location | `expo-location` foreground permission |
+### Step 2 — Create a virtual environment
 
-- `fetchNearbyPlaces` (`src/api/places.ts`) asks Google first and falls back to Overpass when the key is missing, the quota is exhausted, or the request fails.
-- Only dining/drinking results are kept: the request sends dining `includedTypes`, then `primaryType` is checked again so hotels, malls and landmarks that merely contain a restaurant are dropped. Adjust the list in `src/api/googlePlaces.ts`.
-- **Only places with Google Maps reviews are shown.** `hasGoogleReviews` (`src/types/place.ts`) requires `source === 'google'` and `ratingCount > 0`; it filters every fetch and, in `NearbyPlacesProvider`, the on-device collection, so unrated venues and every OpenStreetMap result are hidden (they stay stored, just not displayed). `openNow` is neither requested nor stored — only the rating and review count are mapped.
-- **Every search is saved on the device.** The collection lives in memory (`src/storage/placeStore.ts`) and is written to AsyncStorage (`flavorly:places:v1`) after the burst of merges settles (500 ms debounce, queued writes, flushed immediately when the app leaves the foreground). Merging mutates the in-memory map synchronously, so concurrent searches cannot lose each other's rows — the previous read-modify-write-per-search could.
-- Each place is upserted by id, so repeat searches refresh ratings/details instead of duplicating, and places found earlier are kept. The Map and Explore tabs both read from that merged collection, so panning over ground you have already covered reveals more than the 20 places a single request returns. The store has **no cap**: every place the user has seen is kept (≈293 B each). To stay clear of Android's ~2 MB per-value limit ("Row too big to fit into CursorWindow"), it is **sharded** across `flavorly:places:v2:index` + `places:v2:<n>` chunks of 250 places (~80 KB each), so the collection can grow indefinitely. Only chunks whose content changed are rewritten, a `places:v1` value left by earlier versions is migrated on first read, and the developer export still presents it as one JSON field.
-- **Light mode only.** The app is designed light; `app.json` pins `userInterfaceStyle: "light"` and both maps pass `userInterfaceStyle="light"` (`react-native-maps` is otherwise iOS-only for that prop, so Android inherits the light app theme).
-- **The last map position is restored.** `src/storage/mapViewStore.ts` saves the settled region (centre + deltas, `flavorly:map-view:v1`, debounced). On the next launch the map opens there — the saved view wins over the device fix — and the first search runs for that area instead of a default city centre.
-- Distances are not persisted — they are recalculated from the current origin on read, so a place saved from another area still shows a sensible distance.
-- **Failures are silent.** A failed search shows no error, banner or retry prompt: whatever is already on screen stays, the status returns to `ready`, and automatic searching pauses for 60 s (`FAILURE_COOLDOWN_MS`). Pull-to-refresh (Explore) or the refresh button (Map) is the explicit, rate-limit-free way to try again.
-- **Explore lists every remembered place**, nearest first, with **distances measured from the user's location** — panning the map does not change the list or the numbers. `allPlaces` is the whole on-device collection; the Map tab is the only view-scoped list. When location permission is denied there is no user position, so distances fall back to the centre of the map view and the footer says so.
-- **Searched areas are shaded.** Every successful search adds its circle (centre + radius) to `searchedAreas`, and `MapScreen` draws them as translucent red `Circle` overlays, so it is obvious which ground has already been covered. A repeat search of a covered area adds nothing (the 25 % similarity guard), and at most `MAX_SEARCHED_AREAS` (40) circles are kept. The list is in memory only — it is not persisted.
-- **Markers follow the viewport.** Every remembered place inside the visible rectangle gets a pin (`regionContains` in `src/utils/geo.ts`) — there is no fixed marker cap, so the pins change as you pan and zoom. The header reads "N in view · M in this area".
-- **Searches never overlap.** If a search is still running when the map asks for a new area, that request is queued rather than fired in parallel; when the running search finishes, the newest queued view runs (older intermediate views are dropped). A queued request is still subject to the failure cooldown unless it came from an explicit refresh.
-- **Search follows the map view**, but never while you are still panning: the map waits 400 ms after the gesture ends before reporting a viewport (`onPanDrag`/`isGesture` cancels a pending report), and the provider adds a 600 ms debounce on top. Two automatic searches are never closer than 1.5 s, and rapid pans collapse into a single request. The radius is clamped to 150 m – 50 km (Google's limit).
-- Location is only used to open the map on the user and to measure distances; the search itself works without GPS. When location is denied, distances are measured from the centre of the view.
-- **Photo resolution order** (`src/api/placeImage.ts`): Google `photos` → Facebook (Graph picture endpoint, else the page's own `og:image`) → any other website's published preview image → map preview.
-- **Reading a page.** `src/api/embedImage.ts` fetches the page (9 s timeout, first 500 KB) and takes the best link-preview image it advertises: `og:image[, :url, :secure_url]` → `twitter:image[, :src]` → `<link rel="image_src">` → `msapplication-TileImage` → JSON-LD `image` → `apple-touch-icon` → `<link rel="preload" as="image">`. Relative, protocol-relative and entity-escaped URLs are resolved; `data:`/`javascript:` and known generic assets (Facebook's `rsrc.php` placeholder, `/images/logo` paths) are rejected.
-- **Every candidate is verified** before it is stored: a `HEAD` check (`isImageUrl`) because pages often advertise an `og:image` that 404s, then a content check on the downloaded bytes. A failed candidate falls through to the next source.
-- **Facebook placeholders are filtered out.** The Graph picture endpoint answers `200 image/jpeg` with a generic grey silhouette for pages whose avatar it will not expose, and `200 image/gif` with a blank 2×2 pixel for others — so "the download worked" does not mean there is a photo. `src/api/facebookPicture.ts` recognises the silhouette by content (Facebook serves byte-identical images: 11 783 B, FNV-1a `3581c6c4`), `src/utils/imageSize.ts` rejects anything whose JPEG/PNG/GIF/WebP header says it is under 64 px, and the resolver then falls through to the page's own `og:image`, which carries the real avatar.
-- **Facebook quirks.** The Graph picture endpoint is tokenless and works for handles, numeric ids, `/people/<name>/<id>`, `/p/<name>-<id>` and `profile.php?id=…`. `/share/…` links carry no handle, so they are resolved by reading the page. facebook.com only serves page HTML (and its `og:image`) to a **mobile Safari user agent**, which `fetchEmbedImage` sends for Facebook URLs; login-walled pages return Meta's placeholder, which the generic-asset filter rejects.
-- **Images are stored as files, never as URLs.** Whichever source wins, the picture is downloaded into `<documents>/flavorly-photos/` (`src/storage/photoFiles.ts`) — Google photo, Facebook avatar and website embed all land there the same way. Photos therefore work offline, survive reinstall/restore (the file name is derived from the place id, so no absolute path is stored) and are shipped as a zip rather than inside the JSON.
-- **The file is the record.** There is no photo index and no AsyncStorage entry for images: `findStoredPhoto` looks for `google__<place>.jpg`, `facebook__<place>.jpg`, `website__<place>.jpg` in the photos directory, and the prefix doubles as the source used for attribution. Images from every source end up the same way, so lists, details and the zip archive all read from files.
-- Browsers have no writable app directory, so on web nothing is stored and the resolved image is shown for that session only.
-- The Facebook avatar comes from the public Graph picture endpoint (`graph.facebook.com/<handle>/picture?width=800`), which redirects to the image and needs no access token. An unknown or private handle answers `400`, which surfaces as an image error and falls back to the map preview. This is an unauthenticated, rate-limited endpoint Meta can change at any time — best effort, not a guarantee.
-- Reading a page only touches the tags a site publishes for social previews — nothing is rendered and no private data is read. It runs **only when a place is opened** (never while scrolling lists) and at most once per place per session. Browsers block cross-origin HTML reads, so on web this path fails and the map preview is used; on device it works.
-- **There is no image search.** Web search APIs were evaluated and dropped: facebook.com and DuckDuckGo answer non-browser clients with anti-bot challenges (DDG returns `202 {"challenge":…}` even with a valid `vqd`, cookies and full browser headers), Google Custom Search needs an unrestricted key plus a Programmable Search Engine id, and Wikimedia/Openverse never return photos of a specific venue. Enabling billing on the Places project remains the reliable way to get real venue photography.
-- **Photos need billing enabled** on the Google Cloud project. Until then the Places API returns no `photos` array (the photo media endpoint answers `403 ... requires billing`), and the details screen shows the map preview in the hero slot instead of an empty tile (list rows fall back to a branded initial tile). Once billing is on, photos appear with no code change.
-- **Attribution**: keep the Google attribution and the "© OpenStreetMap contributors" lines wherever place data is shown.
-- The public Overpass instances are community-run and occasionally return 502s, so `src/api/overpass.ts` falls through three mirrors.
+```powershell
+py -3.11 -m venv .venv
+```
 
-### Keeping the key safe
+Creates an isolated Python environment for backend dependencies.
 
-The key is embedded in the app bundle, so anyone holding the app can extract it. In Google
-Cloud Console, restrict it to the *Places API (New)* and to your Android package/SHA-1
-(and iOS bundle id) instead of leaving it unrestricted, and rotate it if it has been shared.
+### Step 3 — Install dependencies
 
-## Notes
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
 
-- Everything here runs in **Expo Go**, which only ships Expo's bundled native modules. If you add a library with native code that Expo Go does not bundle, you will need a development build (`npx expo run:android` / `npx expo run:ios` or `eas build`).
-- `ios/` and `android/` are generated on demand and are git-ignored; configure native behavior in `app.json` instead.
-- A **store build for Android** will need a Google Maps API key (`android.config.googleMaps.apiKey`) because Expo Go supplies its own. iOS uses Apple Maps and needs nothing.
-- The **web** preview cannot render the map (react-native-maps has no web implementation) — use Expo Go on a device for the real experience. The nearby-places data does load in the browser.
-- **Android POI pins**: react-native-maps implements `showsPointsOfInterests` as a no-op on Android, so Google's own pins (malls, towers, schools) are hidden with `customMapStyle` in `MapScreen.tsx`. Only the dining markers the app renders stay on the map.
+Installs the Python packages required by FastAPI, SQLite integration, and the saved Machine Learning model.
+
+### Step 4 — Create the backend `.env` file
+
+```powershell
+New-Item -Path .env -ItemType File
+```
+
+Creates a private backend environment file. Skip this command if the file already exists.
+
+Generate a JWT signing secret:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Open `backend/.env` and enter:
+
+```dotenv
+JWT_SECRET_KEY=YOUR_GENERATED_SECRET
+```
+
+Replace the placeholder with the generated secret.
+
+**Never upload this `.env` file to GitHub.**
+
+### Step 5 — Run the backend
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+Starts the FastAPI server on port 8000 and makes it accessible to devices on the same permitted local network.
+
+Keep this terminal running.
+
+### Step 6 — Verify the backend
+
+Open the following address in your computer's browser:
+
+http://127.0.0.1:8000/health
+
+Expected response:
+
+```json
+{
+  "status": "ok",
+  "model": "Unsupervised KNN",
+  "restaurants": 4940
+}
+```
+
+The FastAPI Swagger documentation is available at:
+
+http://127.0.0.1:8000/docs
+
+## 4. Frontend Setup (React Native / Expo)
+
+Open a **second VS Code terminal**. Do not close the backend terminal.
+
+### Step 1 — Open the project root
+
+If the second terminal is inside `backend/`, run:
+
+```powershell
+cd ..
+```
+
+Returns to the directory containing `package.json`.
+
+If already at the project root, skip this command.
+
+### Step 2 — Install dependencies
+
+```powershell
+npm ci
+```
+
+Installs the JavaScript packages required by React Native and Expo using the versions recorded in `package-lock.json`.
+
+### Step 3 — Find your computer's IPv4 address
+
+```powershell
+ipconfig
+```
+
+Displays the computer's network information.
+
+Find the **IPv4 Address** under the active Wi-Fi adapter.
+
+Example:
+
+```text
+IPv4 Address: 192.168.1.25
+```
+
+Use your actual address, not the example.
+
+### Step 4 — Create the frontend `.env` file
+
+From the project root, run:
+
+```powershell
+New-Item -Path .env -ItemType File
+```
+
+Creates the frontend environment configuration. Skip this command if the file already exists.
+
+Open the root `.env` and add:
+
+```dotenv
+EXPO_PUBLIC_GOOGLE_PLACES_API_KEY=YOUR_GOOGLE_PLACES_API_KEY
+EXPO_PUBLIC_API_BASE_URL=http://YOUR_COMPUTER_IPV4:8000
+```
+
+Replace the placeholders with the authorized Google Places API key and your computer's IPv4 address.
+
+**Important:**
+
+- The frontend and backend use separate `.env` files.
+- Do not place the backend JWT secret in the frontend.
+- Expo public environment variables are included in the application bundle.
+- Restrict your Google Maps API key appropriately in Google Cloud Console.
+- Your computer and phone must be connected to the same reachable network.
+- Local HTTP is for development; deployed backend connections must use HTTPS.
+
+### Step 5 — Start Expo
+
+```powershell
+npx expo start --clear
+```
+
+Starts the Expo development server and clears its cache.
+
+A QR code will appear in the terminal.
+
+### Step 6 — Open the application
+
+1. Install Expo Go on your phone.
+2. Connect your phone and computer to the same reachable network.
+3. Open Expo Go and scan the QR code.
+4. Wait for the Flavorly application to load.
+5. Register or log in to your account.
+6. Allow location access to enable nearby restaurant recommendations.
+
+**Both the FastAPI and Expo terminals must remain running.**
+
+## 5. Running the Application Again
+
+After completing the initial installation, you only need to start the backend and frontend.
+
+### Terminal 1 — Backend
+
+From the project root:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+Starts the backend server using the existing Python environment.
+
+### Terminal 2 — Frontend
+
+From the project root:
+
+```powershell
+npx expo start --clear
+```
+
+Starts Expo and displays the QR code for opening the application in Expo Go.
+
+You do not need to reinstall dependencies or retrain the KNN model every time.
+
+## 6. Application Features
+
+- **User Authentication:** Registration, login, logout, and account management using JWT.
+- **Restaurant Discovery:** Displays restaurant listings and locations using Google Maps and the backend restaurant catalog.
+- **Restaurant Ratings:** Users can submit, update, and delete ratings stored in SQLite.
+- **My Ratings:** Displays restaurant ratings belonging to the authenticated user.
+- **Personalized Recommendations:** Uses restaurant feature-space similarity and saved user ratings to generate ranked Top-5 results.
+- **Cold-Start Recommendations:** Provides quality-based results for users without applicable rating history.
+- **Location-Aware Filtering:** Filters eligible recommendations within a 5-kilometer radius when location is available.
+
+## 7. How the Recommendation System Works
+
+The restaurant dataset was collected using Google Maps Platform and processed in Google Colab.
+
+The initial dataset contained 5,202 records, which were filtered into 4,940 eligible food-related establishments.
+
+The preprocessing pipeline included:
+
+1. Data cleaning and filtering.
+2. One-hot encoding of restaurant categories.
+3. Bayesian-style smoothing of Google ratings.
+4. Logarithmic transformation of review counts.
+5. Standardization of numerical features.
+6. Feature weighting.
+
+A Scikit-learn `NearestNeighbors` estimator was fitted on the processed feature matrix using Euclidean distance.
+
+The fitted model and supporting artifacts were saved in `model_bundle.joblib`.
+
+When users submit ratings, FastAPI retrieves their rating history from SQLite and calculates personalized similarity-based preference scores using the saved restaurant feature representation.
+
+The backend combines preference scores with restaurant quality, applies eligibility and optional geographic filtering, and returns the ranked Top-5 establishments.
+
+The saved model does not retrain after every user rating. Instead, user feedback changes the recommendation ranking calculations.
+
+## 8. Troubleshooting
+
+| Problem | Solution |
+|---|---|
+| Python import error | Confirm Python 3.11 and reinstall backend dependencies if necessary |
+| Backend cannot start | Verify the virtual environment, requirements, `.env`, and model bundle |
+| Cannot connect from phone | Check the computer's IPv4 address, firewall, Wi-Fi, and running backend |
+| Missing API base URL | Check the root `.env` and restart Expo |
+| Login credentials rejected | Register a new account if using a fresh SQLite database |
+| Google Maps unavailable | Check API key restrictions, API access, quotas, and internet connectivity |
+| Recommendations not loading | Confirm FastAPI is running and `/health` returns successfully |
+| Expo cannot launch | Verify `npm ci` completed successfully |
+
+## 9. Security Notes
+
+The following files and directories must not be uploaded to GitHub:
+
+```text
+.env
+backend/.env
+backend/ratings.db
+backend/.venv/
+node_modules/
+```
+
+The two `.env` files must be created manually after cloning the repository.
+
+The saved `model_bundle.joblib` must be present for the recommendation backend to load its restaurant feature data.
+
+## 10. Project Summary
+
+Flavorly combines a React Native mobile application, Python FastAPI backend, SQLite database, and unsupervised nearest-neighbor recommendation system.
+
+The application allows registered users to discover nearby restaurants, save personal ratings, and receive location-aware recommendations based on restaurant similarity and individual preferences.
+
+The frontend and backend are maintained in one repository but run as separate processes that communicate through HTTP API requests.
+
+For development, the application is launched using Expo Go and a locally running FastAPI server.

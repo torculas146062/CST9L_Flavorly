@@ -1,99 +1,428 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useMemo } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
+import { BackendError, getRecommendations, type BackendRecommendationsResponse } from '../api/backend';
 import { PlaceThumbnail } from '../components/PlaceThumbnail';
+import { PrimaryButton } from '../components/PrimaryButton';
 import { Screen } from '../components/Screen';
-import { MIN_RATINGS_FOR_RECOMMENDATIONS } from '../constants/recommend';
+import { useAuth } from '../context/AuthContext';
 import { useNearbyPlaces } from '../context/NearbyPlacesContext';
 import { useRatings } from '../context/RatingsContext';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, radius, spacing, typography } from '../theme';
-import { formatDistance, formatPriceLevel } from '../utils/format';
-import { buildRecommendations, type Recommendation } from '../utils/recommend';
+import type { Coordinates, Place } from '../types/place';
+import { formatCount, formatDistance } from '../utils/format';
+import { distanceInMeters } from '../utils/geo';
+import { mapRecommendations } from '../utils/recommend';
 
 type RecommendNavigation = NativeStackNavigationProp<RootStackParamList>;
 
+type RecommendationState = {
+  scopeKey: string;
+  method: BackendRecommendationsResponse['method'] | null;
+  places: Place[];
+  loading: boolean;
+  error: string | null;
+};
+
+type ActiveRequest = {
+  id: number;
+  key: string;
+};
+
+type RecommendationLogContext = {
+  currentAccountId: string | null;
+  requestAccountId: string | null;
+  responseAccountId?: string;
+  method?: BackendRecommendationsResponse['method'];
+  requestGeneration: number;
+  accepted: boolean;
+  renderedRestaurantIds?: string[];
+};
+
+const EMPTY_PLACES: Place[] = [];
+const RECOMMENDATION_RADIUS_KM = 5;
+const SIGNIFICANT_LOCATION_CHANGE_METERS = 500;
+
+function logRecommendation(event: string, context: RecommendationLogContext) {
+  if (__DEV__) {
+    console.info(`[recommendations] ${event}`, context);
+  }
+}
+
+function messageOf(caught: unknown): string {
+  return caught instanceof Error
+    ? caught.message
+    : 'Could not load recommendations. Check your connection and try again.';
+}
+
 export function RecommendScreen() {
-  const { allPlaces } = useNearbyPlaces();
-  const { ratings, ratedCount, ready } = useRatings();
+  const {
+    allPlaces,
+    location,
+    locationStatus,
+    refreshLocation,
+  } = useNearbyPlaces();
+  const { ratingsRevision } = useRatings();
+  const { user, sessionGeneration, withAuthenticatedRequest } = useAuth();
   const navigation = useNavigation<RecommendNavigation>();
+  const userId = user?.id ?? null;
+  const ownerKey = userId ? `${userId}:${sessionGeneration}` : '';
+  const [broaderResults, setBroaderResults] = useState(false);
+  const [lastRecommendationLocation, setLastRecommendationLocation] = useState<Coordinates | null>(null);
+  let recommendationLocation = lastRecommendationLocation;
+  if (locationStatus === 'denied' || locationStatus === 'unavailable') {
+    recommendationLocation = null;
+  } else if (
+    location &&
+    (!lastRecommendationLocation ||
+      distanceInMeters(lastRecommendationLocation, location) >= SIGNIFICANT_LOCATION_CHANGE_METERS)
+  ) {
+    recommendationLocation = location;
+  }
+  const locationFilter = recommendationLocation && !broaderResults ? recommendationLocation : null;
+  const locationFilterKey = locationStatus === 'loading' && !recommendationLocation
+    ? 'location-loading'
+    : locationFilter
+      ? `${locationFilter.latitude},${locationFilter.longitude}:${RECOMMENDATION_RADIUS_KM}`
+      : 'unfiltered';
+  const requestScopeKey = `${ownerKey}:${ratingsRevision}:${locationFilterKey}`;
+  const [state, setState] = useState<RecommendationState>({
+    scopeKey: requestScopeKey,
+    method: null,
+    places: EMPTY_PLACES,
+    loading: Boolean(userId),
+    error: null,
+  });
 
-  const result = useMemo(() => buildRecommendations(allPlaces, ratings), [allPlaces, ratings]);
+  const mounted = useRef(true);
+  const focused = useRef(false);
+  const currentRequestScopeKey = useRef(requestScopeKey);
+  const currentUserId = useRef(userId);
+  const currentRatingsRevision = useRef(ratingsRevision);
+  const currentPlaces = useRef(allPlaces);
+  const requestId = useRef(0);
+  const activeRequest = useRef<ActiveRequest | null>(null);
+  const lastStartedKey = useRef('');
+  const focusGeneration = useRef(0);
+  const latestResponse = useRef<{
+    requestAccountId: string;
+    responseAccountId: string;
+    method: BackendRecommendationsResponse['method'];
+    requestGeneration: number;
+  } | null>(null);
+  useLayoutEffect(() => {
+    if (locationStatus === 'denied' || locationStatus === 'unavailable') {
+      setLastRecommendationLocation(null);
+    }
+    if (recommendationLocation && recommendationLocation !== lastRecommendationLocation) {
+      setLastRecommendationLocation(recommendationLocation);
+    }
+    if (currentRequestScopeKey.current !== requestScopeKey) {
+      currentRequestScopeKey.current = requestScopeKey;
+      requestId.current += 1;
+      activeRequest.current = null;
+      lastStartedKey.current = '';
+      latestResponse.current = null;
+      setState({
+        scopeKey: requestScopeKey,
+        method: null,
+        places: EMPTY_PLACES,
+        loading: Boolean(userId) && locationStatus !== 'loading',
+        error: null,
+      });
+    }
+    currentUserId.current = userId;
+    currentRatingsRevision.current = ratingsRevision;
+    currentPlaces.current = allPlaces;
+  }, [
+    requestScopeKey,
+    userId,
+    ratingsRevision,
+    allPlaces,
+    recommendationLocation,
+    lastRecommendationLocation,
+    locationStatus,
+  ]);
 
-  const openExplore = () => navigation.navigate('MainTabs', { screen: 'Explore' });
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      requestId.current += 1;
+      activeRequest.current = null;
+    };
+  }, []);
 
-  if (!ready) {
+  const fetchRecommendations = useCallback(
+    async (focusId: number, force = false) => {
+      const requestUserId = userId;
+      const requestScope = requestScopeKey;
+      if (!requestUserId) {
+        setState({
+          scopeKey: requestScope,
+          method: null,
+          places: EMPTY_PLACES,
+          loading: false,
+          error: null,
+        });
+        return;
+      }
+
+      if (locationStatus === 'loading') {
+        return;
+      }
+
+      const requestKey = `${requestScope}:${focusId}`;
+      if (activeRequest.current?.key === requestKey || (!force && lastStartedKey.current === requestKey)) {
+        return;
+      }
+
+      const id = ++requestId.current;
+      activeRequest.current = { id, key: requestKey };
+      lastStartedKey.current = requestKey;
+      logRecommendation('request started', {
+        currentAccountId: currentUserId.current,
+        requestAccountId: requestUserId,
+        requestGeneration: id,
+        accepted: false,
+      });
+      setState((current) => ({
+        scopeKey: requestScope,
+        method: current.scopeKey === requestScope ? current.method : null,
+        places: current.scopeKey === requestScope ? current.places : EMPTY_PLACES,
+        loading: true,
+        error: null,
+      }));
+
+      try {
+        const response = await withAuthenticatedRequest((token) =>
+          getRecommendations(token, locationFilter ?? undefined, RECOMMENDATION_RADIUS_KM),
+        );
+        const requestIsStale =
+          !mounted.current ||
+          requestId.current !== id ||
+          currentRequestScopeKey.current !== requestScope ||
+          currentUserId.current !== requestUserId ||
+          currentRatingsRevision.current !== ratingsRevision;
+        const ownerMatches = response.user_id === requestUserId;
+        const accepted = !requestIsStale && ownerMatches;
+        logRecommendation('response received', {
+          currentAccountId: currentUserId.current,
+          requestAccountId: requestUserId,
+          responseAccountId: response.user_id,
+          method: response.method,
+          requestGeneration: id,
+          accepted,
+        });
+        if (requestIsStale) {
+          return;
+        }
+        if (!ownerMatches) {
+          throw new BackendError('The recommendations response belongs to a different account.');
+        }
+
+        latestResponse.current = {
+          requestAccountId: requestUserId,
+          responseAccountId: response.user_id,
+          method: response.method,
+          requestGeneration: id,
+        };
+        setState({
+          scopeKey: requestScope,
+          method: response.method,
+          places: mapRecommendations(response.recommendations, currentPlaces.current),
+          loading: false,
+          error: null,
+        });
+      } catch (caught) {
+        logRecommendation('request failed or rejected', {
+          currentAccountId: currentUserId.current,
+          requestAccountId: requestUserId,
+          requestGeneration: id,
+          accepted: false,
+        });
+        if (
+          mounted.current &&
+          requestId.current === id &&
+          currentRequestScopeKey.current === requestScope &&
+          currentUserId.current === requestUserId &&
+          currentRatingsRevision.current === ratingsRevision
+        ) {
+          setState((current) => ({
+            scopeKey: requestScope,
+            method: current.scopeKey === requestScope ? current.method : null,
+            places: current.scopeKey === requestScope ? current.places : EMPTY_PLACES,
+            loading: false,
+            error: messageOf(caught),
+          }));
+        }
+      } finally {
+        if (activeRequest.current?.id === id) {
+          activeRequest.current = null;
+        }
+      }
+    },
+    [locationFilter, locationStatus, ratingsRevision, requestScopeKey, userId, withAuthenticatedRequest],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      focused.current = true;
+      const focusId = ++focusGeneration.current;
+      void fetchRecommendations(focusId);
+      return () => {
+        focused.current = false;
+      };
+    }, [fetchRecommendations]),
+  );
+
+  const retry = () => {
+    const focusId = focused.current ? focusGeneration.current : ++focusGeneration.current;
+    void fetchRecommendations(focusId, true);
+  };
+
+  const visibleState =
+    state.scopeKey === requestScopeKey
+      ? state
+      : {
+          scopeKey: requestScopeKey,
+          method: null,
+          places: EMPTY_PLACES,
+          loading: Boolean(userId) && locationStatus !== 'loading',
+          error: null,
+        };
+  useEffect(() => {
+    const response = latestResponse.current;
+    logRecommendation('rendered recommendations', {
+      currentAccountId: userId,
+      requestAccountId: response?.requestAccountId ?? null,
+      ...(response
+        ? {
+            responseAccountId: response.responseAccountId,
+            method: response.method,
+          }
+        : {}),
+      requestGeneration: response?.requestGeneration ?? requestId.current,
+      accepted: Boolean(response && response.requestAccountId === userId),
+      renderedRestaurantIds: visibleState.places.map((place) => place.id),
+    });
+  }, [ownerKey, userId, visibleState.places]);
+  const methodLabel =
+    visibleState.method === 'knn_personalized'
+      ? 'Personalized recommendations'
+      : visibleState.method === 'quality_fallback'
+        ? 'Quality-based recommendations'
+        : 'Recommended for you';
+  const screenSubtitle = `${methodLabel} · ${
+    locationStatus === 'loading' && !recommendationLocation
+      ? 'Getting device location'
+      : locationFilter
+        ? `Within ${RECOMMENDATION_RADIUS_KM} km`
+        : 'Not distance-filtered'
+  }`;
+  const locationNotice = locationFilter
+    ? `Recommendations are filtered to within ${RECOMMENDATION_RADIUS_KM} km of your device location.`
+    : broaderResults && recommendationLocation
+      ? 'Showing broader recommendations without distance filtering.'
+      : !recommendationLocation && locationStatus !== 'loading'
+        ? locationStatus === 'denied'
+          ? 'Location permission is off. These recommendations are not distance-filtered.'
+          : 'Device location is unavailable. These recommendations are not distance-filtered.'
+        : null;
+
+  if (visibleState.loading && visibleState.places.length === 0) {
     return (
-      <Screen title="Recommend" subtitle="Built from your ratings">
+      <Screen title="Recommend" subtitle={screenSubtitle}>
         <ActivityIndicator style={styles.spinner} color={colors.primaryStrong} />
       </Screen>
     );
   }
 
-  if (result.status === 'not-enough-ratings') {
-    const remaining = Math.max(result.needed - result.ratedCount, 0);
-    const progress = Math.min(result.ratedCount / result.needed, 1);
-
+  if (visibleState.error && visibleState.places.length === 0) {
     return (
-      <Screen title="Recommend" subtitle="Built from your ratings">
-        <View style={styles.progressCard}>
-          <Text style={styles.progressTitle}>
-            Rate {remaining} more place{remaining === 1 ? '' : 's'}
-          </Text>
-          <Text style={styles.progressBody}>
-            Recommendations are built from what you think, not from what Google thinks. Open a place from Explore or the
-            map, give it a star rating, then come back to this tab.
-          </Text>
-
-          <View style={styles.track}>
-            <View style={[styles.fill, { width: `${progress * 100}%` }]} />
-          </View>
-          <Text style={styles.progressMeta}>
-            {result.ratedCount} of {result.needed} places rated
-          </Text>
-
-          <Pressable onPress={openExplore} style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}>
-            <Ionicons name="search" size={16} color={colors.onPrimary} />
-            <Text style={styles.buttonText}>Find places to rate</Text>
-          </Pressable>
+      <Screen title="Recommend" subtitle={screenSubtitle}>
+        <View style={styles.message}>
+          {locationNotice ? <Text style={styles.notice}>{locationNotice}</Text> : null}
+          {!recommendationLocation && locationStatus !== 'loading' ? (
+            <PrimaryButton label="Retry location" onPress={() => void refreshLocation()} />
+          ) : null}
+          <Text style={styles.error}>{visibleState.error}</Text>
+          <PrimaryButton label="Try again" onPress={retry} />
         </View>
       </Screen>
     );
   }
 
-  const { recommendations, isPlaceholder } = result;
-
-  if (recommendations.length === 0) {
+  if (!visibleState.loading && !visibleState.error && visibleState.places.length === 0) {
     return (
-      <Screen title="Recommend" subtitle={`Based on ${ratedCount} ratings`}>
-        <Text style={styles.empty}>
-          You have rated everything this area has to offer. Pan the map to discover more places.
-        </Text>
+      <Screen title="Recommend" subtitle={screenSubtitle}>
+        <View style={styles.message}>
+          {locationNotice ? <Text style={styles.notice}>{locationNotice}</Text> : null}
+          <Text style={styles.empty}>
+            {locationFilter
+              ? `There are no recommendations within ${RECOMMENDATION_RADIUS_KM} km right now.`
+              : 'There are no recommendations available right now. Try again later.'}
+          </Text>
+          {locationFilter ? (
+            <PrimaryButton
+              label="View broader recommendations"
+              onPress={() => setBroaderResults(true)}
+            />
+          ) : (
+            <PrimaryButton label="Refresh" onPress={retry} />
+          )}
+          {!recommendationLocation && locationStatus !== 'loading' ? (
+            <PrimaryButton label="Retry location" onPress={() => void refreshLocation()} />
+          ) : null}
+        </View>
       </Screen>
     );
   }
 
   return (
-    <Screen title="Recommend" subtitle={`Based on ${ratedCount} ratings`}>
+    <Screen title="Recommend" subtitle={screenSubtitle}>
       <FlatList
-        data={recommendations}
-        keyExtractor={(item) => item.place.id}
+        data={visibleState.places}
+        keyExtractor={(place) => place.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        ListFooterComponent={
-          <Text style={styles.footer}>
-            {isPlaceholder
-              ? 'Placeholder picks — the ranking service is not wired up yet, so these are random unrated places.'
-              : `Built from ${ratedCount} rating${ratedCount === 1 ? '' : 's'}`}
-          </Text>
+        refreshControl={
+          <RefreshControl
+            refreshing={visibleState.loading}
+            onRefresh={retry}
+            tintColor={colors.primaryStrong}
+          />
+        }
+        ListHeaderComponent={
+          locationNotice || visibleState.error ? (
+            <View style={styles.locationNotice}>
+              {locationNotice ? <Text style={styles.notice}>{locationNotice}</Text> : null}
+              {visibleState.error ? <Text style={styles.error}>{visibleState.error}</Text> : null}
+              {recommendationLocation ? (
+                broaderResults ? (
+                  <Pressable onPress={() => setBroaderResults(false)}>
+                    <Text style={styles.locationAction}>Back to nearby recommendations</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable onPress={() => void refreshLocation()}>
+                    <Text style={styles.locationAction}>Refresh device location</Text>
+                  </Pressable>
+                )
+              ) : (
+                <Pressable onPress={() => void refreshLocation()}>
+                  <Text style={styles.locationAction}>Retry location</Text>
+                </Pressable>
+              )}
+            </View>
+          ) : undefined
         }
         renderItem={({ item }) => (
           <RecommendationRow
-            recommendation={item}
-            onPress={() => navigation.navigate('PlaceDetails', { place: item.place })}
+            place={item}
+            onPress={() => navigation.navigate('PlaceDetails', { place: item })}
           />
         )}
       />
@@ -101,14 +430,8 @@ export function RecommendScreen() {
   );
 }
 
-type RecommendationRowProps = {
-  recommendation: Recommendation;
-  onPress: () => void;
-};
-
-function RecommendationRow({ recommendation, onPress }: RecommendationRowProps) {
-  const { place, reason } = recommendation;
-  const meta = [place.kindLabel, formatPriceLevel(place.priceLevel), formatDistance(place.distanceMeters)]
+function RecommendationRow({ place, onPress }: { place: Place; onPress: () => void }) {
+  const meta = [place.kindLabel, place.priceLevel ? '$'.repeat(place.priceLevel) : undefined]
     .filter(Boolean)
     .join(' · ');
 
@@ -126,13 +449,23 @@ function RecommendationRow({ recommendation, onPress }: RecommendationRowProps) 
         <Text style={typography.caption} numberOfLines={1}>
           {meta}
         </Text>
-        {reason ? (
-          <Text style={styles.reason} numberOfLines={2}>
-            {reason}
+        {place.address ? (
+          <Text style={typography.caption} numberOfLines={1}>
+            {place.address}
+          </Text>
+        ) : null}
+        {place.recommendationDistanceKm != null ? (
+          <Text style={typography.caption}>{formatDistance(place.recommendationDistanceKm * 1000)} away</Text>
+        ) : null}
+        {place.rating != null ? (
+          <Text style={styles.rating}>
+            ★ {place.rating.toFixed(1)}
+            {place.ratingCount != null ? (
+              <Text style={styles.ratingCount}> ({formatCount(place.ratingCount)})</Text>
+            ) : null}
           </Text>
         ) : null}
       </View>
-      {place.rating ? <Text style={styles.rating}>★ {place.rating.toFixed(1)}</Text> : null}
     </Pressable>
   );
 }
@@ -141,54 +474,30 @@ const styles = StyleSheet.create({
   spinner: {
     marginTop: spacing.xl,
   },
-  progressCard: {
-    gap: spacing.sm,
-    padding: spacing.lg,
-    borderRadius: radius.lg,
-    backgroundColor: colors.primarySoft,
+  message: {
+    gap: spacing.md,
+    marginTop: spacing.lg,
   },
-  progressTitle: {
-    ...typography.title,
-    fontSize: 22,
+  locationNotice: {
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
   },
-  progressBody: {
-    ...typography.body,
-    fontSize: 15,
+  notice: {
+    ...typography.caption,
     color: colors.textMuted,
   },
-  track: {
-    height: 6,
-    marginTop: spacing.sm,
-    borderRadius: radius.pill,
-    backgroundColor: colors.background,
-    overflow: 'hidden',
-  },
-  fill: {
-    height: '100%',
-    borderRadius: radius.pill,
-    backgroundColor: colors.primaryStrong,
-  },
-  progressMeta: {
+  locationAction: {
     ...typography.caption,
-    fontWeight: '600',
+    color: colors.primaryStrong,
+    fontWeight: '700',
   },
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: spacing.xs,
-    marginTop: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primaryStrong,
+  error: {
+    ...typography.caption,
+    color: colors.primaryStrong,
   },
-  buttonPressed: {
-    opacity: 0.85,
-  },
-  buttonText: {
-    color: colors.onPrimary,
-    fontWeight: '600',
+  empty: {
+    ...typography.body,
+    color: colors.textMuted,
   },
   list: {
     gap: spacing.sm,
@@ -212,23 +521,13 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  reason: {
-    fontSize: 13,
-    color: colors.primaryStrong,
-  },
   rating: {
     fontSize: 13,
     fontWeight: '700',
     color: colors.primaryStrong,
   },
-  empty: {
-    ...typography.body,
-    marginTop: spacing.lg,
+  ratingCount: {
+    fontWeight: '500',
     color: colors.textMuted,
-  },
-  footer: {
-    ...typography.caption,
-    fontSize: 11,
-    marginTop: spacing.md,
   },
 });

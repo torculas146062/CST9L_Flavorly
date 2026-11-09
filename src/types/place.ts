@@ -27,7 +27,7 @@ export type Coordinates = {
   longitude: number;
 };
 
-export type PlaceSource = 'google' | 'osm';
+export type PlaceSource = 'google' | 'osm' | 'backend';
 
 /**
  * What is persisted on the device. `distanceMeters` is left out because it depends on
@@ -52,6 +52,8 @@ export type Place = Coordinates & {
   distanceMeters: number;
   rating?: number;
   ratingCount?: number;
+  /** Backend distance for a location-filtered recommendation, when provided. */
+  recommendationDistanceKm?: number;
   /** 0–4, matching Google's PRICE_LEVEL_* values. */
   priceLevel?: number;
   address?: string;
@@ -59,15 +61,16 @@ export type Place = Coordinates & {
   website?: string;
   photoUrl?: string;
   source: PlaceSource;
+  /** True only when the exact ID was returned by or verified against the backend catalog. */
+  catalogSupported?: boolean;
 };
 
 /**
- * Only venues Google publishes reviews for are shown — a Google place with no reviews,
- * and every OpenStreetMap result, is dropped. Reviews (rating plus count) drive the
- * lists and the Recommend tab, so a venue without them is not worth displaying.
+ * Catalog places are shown even without public reviews. Google results require reviews;
+ * OpenStreetMap results are still excluded from the visible discovery list.
  */
 export function hasGoogleReviews(place: Pick<Place, 'source' | 'ratingCount'>): boolean {
-  return place.source === 'google' && (place.ratingCount ?? 0) > 0;
+  return place.source === 'backend' || (place.source === 'google' && (place.ratingCount ?? 0) > 0);
 }
 
 /** OSM cuisine tags are lowercase and sometimes semicolon separated. */

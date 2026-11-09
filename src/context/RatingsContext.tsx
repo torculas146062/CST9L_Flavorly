@@ -9,75 +9,242 @@ import {
   type ReactNode,
 } from 'react';
 
-import { AppState } from 'react-native';
-
-import {
-  clearRating as clearRatingInStore,
-  flushRatings,
-  loadRatings,
-  setRating as setRatingInStore,
-  type RatingMap,
-  type RatingValue,
-} from '../storage/ratingStore';
+import { BackendError, deleteRestaurantRating, getMyRatings, saveRestaurantRating } from '../api/backend';
+import { useAuth } from './AuthContext';
+import type { RatingMap, RatingValue } from '../storage/ratingStore';
 
 type RatingsValue = {
   ratings: RatingMap;
   ratedCount: number;
+  ratingsRevision: number;
   ready: boolean;
-  rate: (placeId: string, value: RatingValue) => void;
-  clear: (placeId: string) => void;
+  loading: boolean;
+  savingPlaceId: string | null;
+  deletingPlaceId: string | null;
+  error: string | null;
+  refresh: () => Promise<void>;
+  clearError: () => void;
+  rate: (placeId: string, value: RatingValue) => Promise<void>;
+  clear: (placeId: string) => Promise<void>;
 };
 
 const RatingsContext = createContext<RatingsValue | null>(null);
 
+function messageOf(caught: unknown): string {
+  return caught instanceof Error ? caught.message : 'Could not load your ratings.';
+}
+
 export function RatingsProvider({ children }: { children: ReactNode }) {
+  const { user, withAuthenticatedRequest } = useAuth();
   const [ratings, setRatings] = useState<RatingMap>({});
   const [ready, setReady] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [savingPlaceId, setSavingPlaceId] = useState<string | null>(null);
+  const [deletingPlaceId, setDeletingPlaceId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [ratingsRevision, setRatingsRevision] = useState(0);
+
   const isMounted = useRef(true);
+  const revision = useRef(0);
+  const loadSequence = useRef(0);
+  const operationInProgress = useRef(false);
+  const userId = user?.id;
 
   useEffect(() => {
     isMounted.current = true;
     return () => {
       isMounted.current = false;
+      loadSequence.current += 1;
     };
   }, []);
 
-  useEffect(() => {
-    void loadRatings().then((stored) => {
-      if (isMounted.current) {
-        setRatings(stored);
-        setReady(true);
+  const loadHistory = useCallback(
+    async (showLoading: boolean): Promise<boolean> => {
+      if (!userId) {
+        return false;
       }
-    });
-  }, []);
 
-  // Writes are debounced, so flush anything pending when the app leaves the foreground.
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') {
-        void flushRatings();
+      const currentRevision = revision.current;
+      const sequence = ++loadSequence.current;
+      if (showLoading) {
+        setLoading(true);
       }
-    });
-    return () => subscription.remove();
-  }, []);
+      setError(null);
 
-  const rate = useCallback((placeId: string, value: RatingValue) => {
-    setRatings((current) => ({ ...current, [placeId]: { value, ratedAt: Date.now() } }));
-    void setRatingInStore(placeId, value);
-  }, []);
+      try {
+        const response = await withAuthenticatedRequest((token) => getMyRatings(token));
+        if (
+          !isMounted.current ||
+          userId !== user.id ||
+          sequence !== loadSequence.current ||
+          currentRevision !== revision.current
+        ) {
+          return false;
+        }
 
-  const clear = useCallback((placeId: string) => {
-    setRatings((current) => {
-      const next = { ...current };
-      delete next[placeId];
-      return next;
-    });
-    void clearRatingInStore(placeId);
-  }, []);
+        const nextRatings: RatingMap = {};
+        for (const item of response.ratings) {
+          if (
+            typeof item.restaurant_id !== 'string' ||
+            !Number.isInteger(item.rating) ||
+            item.rating < 1 ||
+            item.rating > 5
+          ) {
+            continue;
+          }
+          const parsedDate = Date.parse(item.rated_at);
+          nextRatings[item.restaurant_id] = {
+            value: item.rating as RatingValue,
+            ratedAt: Number.isNaN(parsedDate) ? 0 : parsedDate,
+          };
+        }
+        setRatings(nextRatings);
+        return true;
+      } catch (caught) {
+        if (
+          isMounted.current &&
+          userId === user.id &&
+          sequence === loadSequence.current &&
+          currentRevision === revision.current
+        ) {
+          setError(messageOf(caught));
+        }
+        throw caught;
+      } finally {
+        if (showLoading && isMounted.current && sequence === loadSequence.current) {
+          setLoading(false);
+        }
+        if (isMounted.current) {
+          setReady(true);
+        }
+      }
+    },
+    [userId, user?.id, withAuthenticatedRequest],
+  );
+
+  const refresh = useCallback(async () => {
+    await loadHistory(true);
+  }, [loadHistory]);
+
+  useEffect(() => {
+    void loadHistory(true).catch(() => undefined);
+  }, [loadHistory]);
+
+  const rate = useCallback(
+    async (placeId: string, value: RatingValue) => {
+      if (!placeId || operationInProgress.current) {
+        return;
+      }
+      operationInProgress.current = true;
+      setSavingPlaceId(placeId);
+      setError(null);
+      try {
+        const response = await withAuthenticatedRequest((token) =>
+          saveRestaurantRating(token, placeId, value),
+        );
+        if (!isMounted.current || userId !== user?.id) {
+          return;
+        }
+        revision.current += 1;
+        setRatingsRevision((current) => current + 1);
+        setRatings((current) => ({
+          ...current,
+          [placeId]: { value: response.rating as RatingValue, ratedAt: Date.now() },
+        }));
+        try {
+          await loadHistory(false);
+        } catch {
+          if (isMounted.current) {
+            setError('Rating saved, but your rating history could not be refreshed. Try refreshing.');
+          }
+        }
+      } catch (caught) {
+        if (isMounted.current && userId === user?.id) {
+          setError(messageOf(caught));
+        }
+        throw caught;
+      } finally {
+        operationInProgress.current = false;
+        if (isMounted.current) {
+          setSavingPlaceId(null);
+        }
+      }
+    },
+    [loadHistory, user?.id, userId, withAuthenticatedRequest],
+  );
+
+  const clear = useCallback(
+    async (placeId: string) => {
+      if (!placeId || operationInProgress.current) {
+        return;
+      }
+      operationInProgress.current = true;
+      setDeletingPlaceId(placeId);
+      setError(null);
+      try {
+        await withAuthenticatedRequest((token) => deleteRestaurantRating(token, placeId));
+        if (!isMounted.current || userId !== user?.id) {
+          return;
+        }
+        revision.current += 1;
+        setRatingsRevision((current) => current + 1);
+        setRatings((current) => {
+          const next = { ...current };
+          delete next[placeId];
+          return next;
+        });
+        try {
+          await loadHistory(false);
+        } catch {
+          if (isMounted.current) {
+            setError('Rating deleted, but your rating history could not be refreshed. Try refreshing.');
+          }
+        }
+      } catch (caught) {
+        if (caught instanceof BackendError && caught.status === 404) {
+          try {
+            await loadHistory(false);
+            if (isMounted.current) {
+              setError('That rating was already removed. Your rating history has been refreshed.');
+            }
+            return;
+          } catch {
+            // The original delete error is more useful if the follow-up refresh also fails.
+          }
+        }
+        if (isMounted.current && userId === user?.id) {
+          setError(messageOf(caught));
+        }
+        throw caught;
+      } finally {
+        operationInProgress.current = false;
+        if (isMounted.current) {
+          setDeletingPlaceId(null);
+        }
+      }
+    },
+    [loadHistory, user?.id, userId, withAuthenticatedRequest],
+  );
+
+  const clearError = useCallback(() => setError(null), []);
+  const ratedCount = Object.keys(ratings).length;
 
   const value = useMemo<RatingsValue>(
-    () => ({ ratings, ratedCount: Object.keys(ratings).length, ready, rate, clear }),
-    [ratings, ready, rate, clear],
+    () => ({
+      ratings,
+      ratedCount,
+      ratingsRevision,
+      ready,
+      loading,
+      savingPlaceId,
+      deletingPlaceId,
+      error,
+      refresh,
+      clearError,
+      rate,
+      clear,
+    }),
+    [ratings, ratedCount, ratingsRevision, ready, loading, savingPlaceId, deletingPlaceId, error, refresh, clearError, rate, clear],
   );
 
   return <RatingsContext.Provider value={value}>{children}</RatingsContext.Provider>;

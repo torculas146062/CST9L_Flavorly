@@ -29,10 +29,9 @@ const navigationTheme = {
 };
 
 export function RootNavigator() {
-  const { ready, user } = useAuth();
+  const { ready, user, sessionGeneration } = useAuth();
 
-  // Reading the stored session is local and instant, but showing a spinner beats
-  // flashing the wrong stack for a frame.
+  // Validate the saved backend session before rendering either navigation stack.
   if (!ready) {
     return (
       <View style={styles.loading}>
@@ -46,7 +45,12 @@ export function RootNavigator() {
       <Stack.Navigator>
         {user ? (
           <>
-            <Stack.Screen name="MainTabs" component={MainTabs} options={{ headerShown: false }} />
+            <Stack.Screen
+              name="MainTabs"
+              component={MainTabs}
+              navigationKey={`${user.id}:${sessionGeneration}`}
+              options={{ headerShown: false }}
+            />
             <Stack.Screen
               name="PlaceDetails"
               component={PlaceDetailsScreen}

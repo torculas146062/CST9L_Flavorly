@@ -8,9 +8,7 @@ import { RatingsProvider } from './src/context/RatingsContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
 /**
- * Places and ratings belong to the signed-in session, so their providers only mount
- * then — the login screen must not fire searches. Everything stays on disk, so nothing
- * is lost when the providers unmount on sign-out.
+ * User-scoped providers mount only after authentication; remount them when the account changes.
  */
 function DataProviders({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -19,8 +17,8 @@ function DataProviders({ children }: { children: ReactNode }) {
   }
 
   return (
-    <NearbyPlacesProvider>
-      <RatingsProvider>{children}</RatingsProvider>
+    <NearbyPlacesProvider key={user.id}>
+      <RatingsProvider key={user.id}>{children}</RatingsProvider>
     </NearbyPlacesProvider>
   );
 }

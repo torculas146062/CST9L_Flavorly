@@ -16,19 +16,21 @@ type StarRatingProps = {
   size?: number;
   /** Smaller, dimmer stars for list rows. */
   compact?: boolean;
+  disabled?: boolean;
 };
 
 function clampStar(index: number): RatingValue {
   return Math.min(Math.max(index, 1), STARS.length) as RatingValue;
 }
 
-export function StarRating({ value, onChange, size = 32, compact = false }: StarRatingProps) {
+export function StarRating({ value, onChange, size = 32, compact = false, disabled = false }: StarRatingProps) {
   const [preview, setPreview] = useState<RatingValue | null>(null);
   const rowRef = useRef<ComponentRef<typeof View>>(null);
   const rowLeft = useRef(0);
 
   const cellSize = size + STAR_PADDING * 2;
   const displayed = preview ?? value ?? 0;
+  const changeRating = disabled ? undefined : onChange;
 
   const measureRow = useCallback(() => {
     rowRef.current?.measureInWindow((x: number) => {
@@ -49,7 +51,7 @@ export function StarRating({ value, onChange, size = 32, compact = false }: Star
         onMoveShouldSetPanResponder: (_event, gesture) =>
           Math.abs(gesture.dx) > 5 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
         onPanResponderGrant: () => {
-          if (onChange) {
+          if (changeRating) {
             setPreview(clampStar(value ?? 1));
           }
         },
@@ -58,12 +60,12 @@ export function StarRating({ value, onChange, size = 32, compact = false }: Star
         },
         onPanResponderRelease: (_event, gesture) => {
           setPreview(null);
-          onChange?.(starAt(gesture.moveX));
+          changeRating?.(starAt(gesture.moveX));
         },
         onPanResponderTerminate: () => setPreview(null),
         onPanResponderTerminationRequest: () => false,
       }),
-    [onChange, starAt, value],
+    [changeRating, starAt, value],
   );
 
   const handleLayout = (event: LayoutChangeEvent) => {
@@ -72,7 +74,7 @@ export function StarRating({ value, onChange, size = 32, compact = false }: Star
     }
   };
 
-  if (!onChange) {
+  if (!changeRating) {
     return (
       <View
         style={styles.row}
@@ -100,7 +102,8 @@ export function StarRating({ value, onChange, size = 32, compact = false }: Star
             accessibilityRole="button"
             accessibilityLabel={`Rate ${star} of 5`}
             hitSlop={4}
-            onPress={() => onChange(star)}
+            disabled={disabled}
+            onPress={() => changeRating(star)}
             style={({ pressed }) => [styles.starButton, pressed && styles.starPressed]}
           >
             <Ionicons

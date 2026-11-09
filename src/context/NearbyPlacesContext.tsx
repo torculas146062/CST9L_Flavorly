@@ -12,6 +12,7 @@ import {
 import { AppState } from 'react-native';
 
 import { fetchNearbyPlaces } from '../api/places';
+import { getCachedCatalogVerification } from '../api/catalog';
 import {
   DEFAULT_MAP_CENTER,
   DEFAULT_SEARCH_RADIUS_METERS,
@@ -28,6 +29,7 @@ import { areaFromRegion, distanceInMeters, isSimilarArea, type MapRegion } from 
 const AREA_TOLERANCE = 1.05;
 
 export type NearbyPlacesStatus = 'loading' | 'ready';
+export type DeviceLocationStatus = 'loading' | 'available' | 'denied' | 'unavailable';
 
 type NearbyPlacesValue = {
   status: NearbyPlacesStatus;
@@ -45,7 +47,10 @@ type NearbyPlacesValue = {
   initialViewLoaded: boolean;
   /** The user's position, when location access is granted. */
   location: Coordinates | null;
+  locationStatus: DeviceLocationStatus;
   locationPermissionDenied: boolean;
+  /** Reuses the existing foreground location permission and one-shot device fix. */
+  refreshLocation: () => Promise<void>;
   /** Called by the map whenever the visible region settles. */
   setViewRegion: (region: MapRegion) => void;
   /** Manual retry: ignores the failure cooldown and the rate limit. */
@@ -70,11 +75,13 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
   const [initialViewLoaded, setInitialViewLoaded] = useState(false);
   const [status, setStatus] = useState<NearbyPlacesStatus>('loading');
   const [location, setLocation] = useState<Coordinates | null>(null);
+  const [locationStatus, setLocationStatus] = useState<DeviceLocationStatus>('loading');
   const [locationPermissionDenied, setLocationPermissionDenied] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   const isMounted = useRef(true);
   const requestId = useRef(0);
+  const locationRequestId = useRef(0);
   /** A search is in progress; new requests wait for it instead of running in parallel. */
   const searching = useRef(false);
   /** Latest area requested while a search was running — replayed when that one finishes. */
@@ -89,6 +96,7 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
     isMounted.current = true;
     return () => {
       isMounted.current = false;
+      locationRequestId.current += 1;
     };
   }, []);
 
@@ -98,7 +106,8 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
 
     void loadStoredPlaces().then((places) => {
       if (!cancelled && isMounted.current) {
-        setStored(places);
+        // Eligibility is session-cached and must be revalidated after app restart.
+        setStored(places.map((place) => ({ ...place, catalogSupported: undefined })));
         setStatus('ready');
       }
     });
@@ -129,47 +138,68 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const loadDeviceLocation = useCallback(async (centerMap: boolean) => {
+    const currentRequest = ++locationRequestId.current;
+    const isStale = () => !isMounted.current || locationRequestId.current !== currentRequest;
+    setLocationStatus('loading');
+    setLocationPermissionDenied(false);
+
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (isStale()) {
+        return;
+      }
+      if (!permission.granted) {
+        setLocation(null);
+        setLocationPermissionDenied(true);
+        setLocationStatus('denied');
+        return;
+      }
+
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      if (isStale()) {
+        return;
+      }
+
+      const origin: Coordinates = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      };
+      if (
+        !Number.isFinite(origin.latitude) ||
+        !Number.isFinite(origin.longitude) ||
+        Math.abs(origin.latitude) > 90 ||
+        Math.abs(origin.longitude) > 180
+      ) {
+        throw new Error('The device returned invalid coordinates.');
+      }
+      setLocation(origin);
+      setLocationStatus('available');
+
+      // On initial load, start the map at the device only when no saved view exists.
+      if (centerMap && !restoredFocus.current) {
+        setFocus((current) => ({ ...current, center: origin }));
+      }
+    } catch {
+      if (!isStale()) {
+        setLocation(null);
+        setLocationPermissionDenied(true);
+        setLocationStatus('unavailable');
+      }
+    }
+  }, []);
+
   // Location only decides where distances are measured from; the search follows the map.
   useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const permission = await Location.requestForegroundPermissionsAsync();
-        if (cancelled) {
-          return;
-        }
-        if (!permission.granted) {
-          setLocationPermissionDenied(true);
-          return;
-        }
-
-        const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        if (cancelled) {
-          return;
-        }
-
-        const origin: Coordinates = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        };
-        setLocation(origin);
-
-        // Without a saved position the user starts where they are.
-        if (!restoredFocus.current) {
-          setFocus((current) => ({ ...current, center: origin }));
-        }
-      } catch {
-        if (!cancelled) {
-          setLocationPermissionDenied(true);
-        }
-      }
-    })();
-
+    void loadDeviceLocation(true);
     return () => {
-      cancelled = true;
+      locationRequestId.current += 1;
     };
-  }, []);
+  }, [loadDeviceLocation]);
+
+  const refreshLocation = useCallback(async () => {
+    await loadDeviceLocation(false);
+  }, [loadDeviceLocation]);
 
   // Writes are debounced, so flush anything still pending when the app leaves the foreground.
   useEffect(() => {
@@ -204,7 +234,13 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setStored(merged);
+      setStored(
+        merged.map((place) => ({
+          ...place,
+          catalogSupported:
+            getCachedCatalogVerification(place.id)?.status === 'supported' ? true : undefined,
+        })),
+      );
       setStatus('ready');
 
     } catch {
@@ -297,7 +333,9 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
       restoredView,
       initialViewLoaded,
       location,
+      locationStatus,
       locationPermissionDenied,
+      refreshLocation,
       setViewRegion,
       refresh,
     }),
@@ -310,7 +348,9 @@ export function NearbyPlacesProvider({ children }: { children: ReactNode }) {
       restoredView,
       initialViewLoaded,
       location,
+      locationStatus,
       locationPermissionDenied,
+      refreshLocation,
       setViewRegion,
       refresh,
     ],

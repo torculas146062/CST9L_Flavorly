@@ -3,9 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const STORAGE_KEY = 'flavorly:auth:v1';
 
 /**
- * Accounts live on the device only — there is no backend yet. Passwords are stored as a
- * salted hash so the raw value is never written, but this is **not** real authentication:
- * anyone with access to the device storage can read or replace the whole file.
+ * Legacy device-local account data. AuthContext no longer reads or writes this store;
+ * it remains intact so existing local account data is preserved.
  */
 export type LocalUser = {
   id: string;
