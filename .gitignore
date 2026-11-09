@@ -1,69 +1,57 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
+# Node.js Dependencies
 node_modules/
 
-# Expo
+# Expo and Build Outputs
 .expo/
 dist/
 web-build/
 expo-env.d.ts
 
-# Native
+# Generated Native Projects
+/ios/
+/android/
 .kotlin/
+
+# Native Credentials and Certificates
 *.orig.*
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
-.DS_Store
 *.pem
 
-# local env files
-.env
-.env*.local
-!.env.example
-.env.local
-.env*.local
-
-# typescript
-*.tsbuildinfo
-
-# generated native folders
-/ios
-/android
-
-AGENTS.md
-*.apk
-
-# Environment secrets
+# Environment Variables and Secrets
 .env
 .env.*
-!.env.example
+**/.env
+**/.env.*
 
-# Python
+# Python Virtual Environments and Cache
 **/.venv/
+**/venv/
 **/__pycache__/
 *.py[cod]
 .pytest_cache/
 
-# Local SQLite databases
+# SQLite Local Databases
 backend/*.db
 backend/*.db-journal
 backend/*.db-wal
 backend/*.db-shm
 
-# Node / Expo
-node_modules/
-.expo/
+# Metro Bundler and Debug Logs
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# TypeScript Build Cache
+*.tsbuildinfo
+
+# macOS System Files
+.DS_Store
+
+# Local Development Files
+AGENTS.md
+*.apk
